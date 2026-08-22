@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: princess-rescue-3d
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: REDIS_URL
+        sync: false
+      - key: REDIS_PREFIX
+        value: princess-rescue:v4:

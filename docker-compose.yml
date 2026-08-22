@@ -1,0 +1,22 @@
+services:
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+
+  game:
+    build: .
+    environment:
+      PORT: 3000
+      REDIS_URL: redis://redis:6379
+      REDIS_PREFIX: princess-rescue:v4:
+    ports:
+      - "3000:3000"
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+volumes:
+  redis-data:
