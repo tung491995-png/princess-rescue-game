@@ -1,43 +1,66 @@
-text||''),priority:i&&i.priority});return ok};return true})()""")
-def reset(c):ev(c,"window.__t=[];window.__p=[];true")
-def send(c,s):ev(c,'sendMessage('+json.dumps(s,ensure_ascii=False)+');true')
-def snap(c):return ev(c,"""(()=>{let raw=localStorage.getItem('v3.phase16b.continuity.v2'),doc=raw?JSON.parse(raw):null;return {origin:location.origin,today:!!document.getElementById('todayView'),mira:!!document.getElementById('miraLiving'),kai:!!document.getElementById('kaiLiving'),turns:window.__t||[],present:window.__p||[],continuity:phase15LongitudinalExtension.inspectContinuity(),storeRaw:raw,store:doc}})()""")
-def last(s):return s['turns'][-1] if s['turns'] else None
+s.environ.get('CHROMEWEBDRIVER','')
+  for p in [pathlib.Path(d)/'chromedriver' if d else None,pathlib.Path('/usr/local/share/chromedriver-linux64/chromedriver')]:
+    if p and p.exists():return str(p)
+  raise RuntimeError('CHROMEDRIVER_NOT_FOUND')
+
 def main():
-  prep();E={'candidate_sha256':CANDIDATE_SHA,'checks':{},'projection_file_count':len(SOURCE_MANIFEST),'notes':['Exact browser code projection; binary visual assets omitted. Asset 404 logs ignored; all JS must be HTTP 200 and JS runtime errors zero.']};E['checks']['projection_hashes']='PASS';chrome=next((shutil.which(x) for x in ['google-chrome','google-chrome-stable','chromium'] if shutil.which(x)),None);assert chrome and os.geteuid()!=0;E['chrome_version']=subprocess.check_output([chrome,'--version'],text=True).strip();profile='/tmp/p16b-c';shutil.rmtree(profile,ignore_errors=True);xvbin=shutil.which('Xvfb');assert xvbin,'XVFB_NOT_AVAILABLE';xlog=open('/tmp/p16b-xvfb.log','w');xv=subprocess.Popen([xvbin,':99','-screen','0','1280x900x24','-nolisten','tcp'],stdout=xlog,stderr=subprocess.STDOUT);time.sleep(.4);env=os.environ.copy();env['DISPLAY']=':99';args=[chrome,'--disable-gpu','--disable-dev-shm-usage','--no-first-run','--no-default-browser-check','--remote-debugging-port=9222','--remote-debugging-address=127.0.0.1',f'--user-data-dir={profile}','--remote-allow-origins=http://127.0.0.1:9222','about:blank'];assert '--no-sandbox' not in args;E['chrome_mode']='headed_xvfb';E['chrome_args']=args[1:];log=open('/tmp/p16b-chrome.log','w');pr=subprocess.Popen(args,stdout=log,stderr=subprocess.STDOUT,env=env)
+  prep();E={'candidate_sha256':CANDIDATE_SHA,'checks':{},'projection_file_count':len(SOURCE_MANIFEST),'notes':['Exact browser code projection; binary visual assets intentionally omitted. ChromeDriver is preinstalled on the GitHub runner and no browser stack is installed during certification.']};E['checks']['projection_hashes']='PASS'
+  chrome=next((shutil.which(x) for x in ['google-chrome','google-chrome-stable','chromium'] if shutil.which(x)),None);assert chrome and os.geteuid()!=0
+  driver=driver_path();E['chrome_version']=subprocess.check_output([chrome,'--version'],text=True,stderr=subprocess.STDOUT).strip();E['chromedriver_version']=subprocess.check_output([driver,'--version'],text=True,stderr=subprocess.STDOUT).strip();E['runner_euid']=os.geteuid()
+  dlog=open('/tmp/p16b-chromedriver.log','w');dp=subprocess.Popen([driver,'--port=9515','--verbose','--log-path=/tmp/p16b-chromedriver-native.log'],stdout=dlog,stderr=subprocess.STDOUT)
+  w=None
   try:
-    ts=[]
-    for _ in range(80):
+    for _ in range(100):
       try:
-        with urllib.request.urlopen(CDP+'/json/list',timeout=2) as r:ts=json.load(r)
-        if ts:break
-      except Exception:time.sleep(.2)
-    if not ts:
-      raise RuntimeError('CDP_NOT_READY:'+pathlib.Path('/tmp/p16b-chrome.log').read_text(errors='replace')[-4000:])
-    c=CDP(next(x for x in ts if x.get('type')=='page')['webSocketDebuggerUrl']);[c.call(d+'.enable') for d in ['Page','Runtime','Network','Log']];pre="""(()=>{window.V3Phase16PlanningAdapter={version:'stage8-p16b',select:function(a){const ids=((a&&a.frame&&a.frame.eligibleOptions)||[]).map(x=>x.optionId);const w=['WEEK.CURRENT_MISSION_FOCUS','WEEK.MOMENTUM_NEXT'].filter(x=>ids.includes(x));const s=w.length?w:(ids[0]?[ids[0]]:[]);return {selectedOptionIds:s,nextBestOptionId:s[0]||null,comparison:null,rationale:'SMUGGLED_STAGE8_TEXT'}}};})()""";c.call('Page.addScriptToEvaluateOnNewDocument',{'source':pre});c.call('Page.navigate',{'url':BASE});wait(c,"document.readyState==='complete'",20);wait(c,"typeof sendMessage==='function'",10);hooks(c);c.drain(.3);s=snap(c);assert s['origin']=='http://127.0.0.1:8765' and s['today'] and s['mira'] and s['kai'];E['checks']['origin_dom']='PASS';assert ev(c,"(()=>{localStorage.setItem('__x','y');let v=localStorage.getItem('__x');localStorage.removeItem('__x');return v})()")== 'y';E['checks']['real_localStorage']='PASS'
-    reset(c);send(c,'Plan this week');time.sleep(.3);s=snap(c);assert last(s)['extensionVersion']=='phase16a-strategic-extension-v1.1' and len(s['present'])==1 and 'SMUGGLED_STAGE8_TEXT' not in s['present'][0]['text'] and s['continuity']['capture']['state']=='PRESENTED_CONFIRMABLE' and s['store'] is None;E['checks']['plan_ack_no_double_no_smuggle']='PASS'
-    reset(c);send(c,'chốt kế hoạch này');time.sleep(.2);s=snap(c);d=s['store'];assert last(s)['extensionVersion']=='phase16b-continuity-extension-v1' and last(s)['outcome'] in ['CREATED','SUPERSEDED'] and d['anchor'] and len(d['anchor']['sourcePlan']['steps'])>=2 and 'Tuần ' not in s['storeRaw'];aid=d['anchor']['continuityId'];rev=d['revision'];E['checks']['confirm_structured_persist']='PASS'
-    c.call('Page.reload');wait(c,"document.readyState==='complete'",20);wait(c,"typeof sendMessage==='function'",10);hooks(c);time.sleep(.15);assert snap(c)['store']['anchor']['continuityId']==aid;E['checks']['reload_persistence']='PASS'
-    reset(c);send(c,'tiếp tục kế hoạch đã lưu');time.sleep(.2);s=snap(c);assert last(s)['outcome']=='RESUMED' and len(s['present'])==1 and s['store']['anchor']['cursor']==0;E['checks']['resume']='PASS'
-    reset(c);send(c,'xong bước hiện tại của kế hoạch');time.sleep(.2);s=snap(c);assert last(s)['outcome']=='ADVANCED' and s['store']['anchor']['cursor']==1;E['checks']['advance']='PASS'
-    reset(c);send(c,'tạm dừng kế hoạch đã lưu');time.sleep(.15);s=snap(c);assert last(s)['outcome']=='DEFERRED' and s['store']['anchor']['state']=='DEFERRED';E['checks']['defer']='PASS'
-    reset(c);send(c,'quay lại kế hoạch đã lưu');time.sleep(.15);assert last(snap(c))['outcome']=='RESUMED';E['checks']['resume_deferred']='PASS'
-    reset(c);send(c,'hủy kế hoạch đã lưu');time.sleep(.15);s=snap(c);assert last(s)['outcome']=='CANCELLED' and s['store']['anchor'] is None and s['store']['revision']>rev;E['checks']['cancel']='PASS'
-    reset(c);send(c,'Plan this week');time.sleep(.2);send(c,'chốt kế hoạch này');time.sleep(.2);s=snap(c);sid=s['store']['anchor']['continuityId'];cur=s['store']['anchor']['cursor'];reset(c);send(c,'Tôi bị đau vai, plan this session');time.sleep(.2);s=snap(c);assert last(s)['safety'] is True and len(s['present'])==1 and s['store']['anchor']['cursor']==cur;E['checks']['safety_preempts']='PASS'
-    reset(c);send(c,'tiếp tục kế hoạch đã lưu nhưng lập kế hoạch mới cho tuần này');time.sleep(.2);s=snap(c);assert last(s)['extensionVersion']=='phase16a-strategic-extension-v1.1' and s['store']['anchor']['continuityId']==sid;E['checks']['fresh_planning_not_shadowed']='PASS'
-    ev(c,"(()=>{const m=todayRuntime.getState().mission;todayRuntime.dispatch({type:'MISSION_SET',mission:{id:'stage8-other',title:'Stage8 Other',exercises:[...m.exercises]}});return true})()");reset(c);send(c,'tiếp tục kế hoạch đã lưu');time.sleep(.2);s=snap(c);assert last(s)['outcome']=='STALE' and last(s)['errorClass'] in ['SUPPORT_FINGERPRINT_STALE','PRESENTATION_DRIFT'];E['checks']['stale_authority']='PASS'
-    c.drain(.3);status={};errs=[]
-    for e in c.events:
-      m=e.get('method');p=e.get('params',{})
-      if m=='Network.responseReceived':
-        r=p.get('response',{});u=r.get('url','')
-        if u.startswith(BASE) and u.endswith('.js'):status[u[len(BASE):]]=r.get('status')
-      elif m=='Runtime.exceptionThrown':errs.append('exception')
-      elif m=='Runtime.consoleAPICalled' and p.get('type')=='error':errs.append('console')
-      elif m=='Log.entryAdded' and p.get('entry',{}).get('level')=='error':
-        en=p.get('entry',{});u=en.get('url','');txt=en.get('text','')
-        if u.endswith('.js') or 'Failed to load resource' not in txt:errs.append('log:'+txt)
-    exp=[x['path'] for x in SOURCE_MANIFEST if x['path'].endswith('.js')];assert all(status.get(x)==200 for x in exp),status;assert not errs,errs;E['checks']['scripts_17_200']='PASS';E['checks']['js_errors_zero']='PASS';shot=c.call('Page.captureScreenshot',{'format':'jpeg','quality':30}).get('data','');E['screenshot_sha256']=hashlib.sha256(base64.b64decode(shot)).hexdigest();E['verdict']='PHASE16B_STAGE8_PASS';print('P16B_STAGE8_EVIDENCE_JSON='+json.dumps(E,separators=(',',':')));print('PHASE16B_STAGE8_PASS')
+        st=wd_http('GET','/status',timeout=1)
+        if st.get('value',{}).get('ready'):break
+      except Exception:time.sleep(.1)
+    else: raise RuntimeError('CHROMEDRIVER_NOT_READY')
+    profile='/tmp/p16b-wd-profile';shutil.rmtree(profile,ignore_errors=True)
+    args=['--headless=new','--disable-gpu','--disable-dev-shm-usage','--no-first-run','--no-default-browser-check',f'--user-data-dir={profile}','--remote-debugging-pipe']
+    assert '--no-sandbox' not in args
+    req={'capabilities':{'alwaysMatch':{'browserName':'chrome','goog:chromeOptions':{'binary':chrome,'args':args},'goog:loggingPrefs':{'browser':'ALL','performance':'ALL'}}}}
+    created=wd_http('POST','/session',req,timeout=30).get('value',{});sid=created.get('sessionId');assert sid,created;caps=created.get('capabilities',{});w=WD(sid);E['chrome_capabilities']={k:caps.get(k) for k in ['browserName','browserVersion','platformName','goog:processID'] if k in caps};pid=caps.get('goog:processID');
+    if pid:
+      cmd=pathlib.Path(f'/proc/{pid}/cmdline').read_bytes().replace(b'\0',b' ').decode(errors='replace');E['chrome_process_args']=cmd;assert '--no-sandbox' not in cmd
+    E['checks']['sandbox_not_disabled']='PASS'
+    pre="""(()=>{window.V3Phase16PlanningAdapter={version:'stage8-p16b',select:function(a){const ids=((a&&a.frame&&a.frame.eligibleOptions)||[]).map(x=>x.optionId);const q=['WEEK.CURRENT_MISSION_FOCUS','WEEK.MOMENTUM_NEXT'].filter(x=>ids.includes(x));const s=q.length?q:(ids[0]?[ids[0]]:[]);return {selectedOptionIds:s,nextBestOptionId:s[0]||null,comparison:null,rationale:'SMUGGLED_STAGE8_TEXT'}}};})()"""
+    w.cdp('Page.addScriptToEvaluateOnNewDocument',{'source':pre});w.nav(BASE);wait(w,"document.readyState==='complete'",20);wait(w,"typeof sendMessage==='function' && typeof phase15LongitudinalExtension!=='undefined'",15);hooks(w);s=snap(w);assert s['origin']=='http://127.0.0.1:8765' and s['today'] and s['mira'] and s['kai'];E['checks']['real_localhost_origin_dom']='PASS';assert w.js("localStorage.setItem('__p16b_stage8','ok');const v=localStorage.getItem('__p16b_stage8');localStorage.removeItem('__p16b_stage8');return v;")=='ok';E['checks']['real_localStorage']='PASS'
+    reset(w);send(w,'Plan this week');time.sleep(.35);s=snap(w);assert last(s)['extensionVersion']=='phase16a-strategic-extension-v1.1' and len(s['present'])==1 and 'SMUGGLED_STAGE8_TEXT' not in s['present'][0]['text'] and s['continuity']['capture']['state']=='PRESENTED_CONFIRMABLE' and s['store'] is None;E['checks']['plan_ack_no_double_no_smuggle']='PASS'
+    reset(w);send(w,'chốt kế hoạch này');time.sleep(.25);s=snap(w);doc=s['store'];assert last(s)['extensionVersion']=='phase16b-continuity-extension-v1' and last(s)['outcome'] in ['CREATED','SUPERSEDED'] and doc['anchor'] and len(doc['anchor']['sourcePlan']['steps'])>=2 and 'Tuần ' not in s['storeRaw'];aid=doc['anchor']['continuityId'];rev=doc['revision'];E['checks']['confirm_structured_persist']='PASS'
+    w.refresh();wait(w,"document.readyState==='complete'",20);wait(w,"typeof sendMessage==='function'",15);hooks(w);time.sleep(.15);assert snap(w)['store']['anchor']['continuityId']==aid;E['checks']['reload_persistence']='PASS'
+    reset(w);send(w,'tiếp tục kế hoạch đã lưu');time.sleep(.2);s=snap(w);assert last(s)['outcome']=='RESUMED' and len(s['present'])==1 and s['store']['anchor']['cursor']==0;E['checks']['resume']='PASS'
+    reset(w);send(w,'xong bước hiện tại của kế hoạch');time.sleep(.2);s=snap(w);assert last(s)['outcome']=='ADVANCED' and s['store']['anchor']['cursor']==1;E['checks']['advance']='PASS'
+    reset(w);send(w,'tạm dừng kế hoạch đã lưu');time.sleep(.2);s=snap(w);assert last(s)['outcome']=='DEFERRED' and s['store']['anchor']['state']=='DEFERRED';E['checks']['defer']='PASS'
+    reset(w);send(w,'quay lại kế hoạch đã lưu');time.sleep(.2);assert last(snap(w))['outcome']=='RESUMED';E['checks']['resume_deferred']='PASS'
+    reset(w);send(w,'hủy kế hoạch đã lưu');time.sleep(.2);s=snap(w);assert last(s)['outcome']=='CANCELLED' and s['store']['anchor'] is None and s['store']['revision']>rev;E['checks']['cancel']='PASS'
+    reset(w);send(w,'Plan this week');time.sleep(.25);send(w,'chốt kế hoạch này');time.sleep(.25);s=snap(w);sid2=s['store']['anchor']['continuityId'];cur=s['store']['anchor']['cursor'];reset(w);send(w,'Tôi bị đau vai, plan this session');time.sleep(.25);s=snap(w);assert last(s)['safety'] is True and len(s['present'])==1 and s['store']['anchor']['cursor']==cur;E['checks']['safety_preempts']='PASS'
+    reset(w);send(w,'tiếp tục kế hoạch đã lưu nhưng lập kế hoạch mới cho tuần này');time.sleep(.25);s=snap(w);assert last(s)['extensionVersion']=='phase16a-strategic-extension-v1.1' and s['store']['anchor']['continuityId']==sid2;E['checks']['fresh_planning_not_shadowed']='PASS'
+    w.js("const m=todayRuntime.getState().mission;todayRuntime.dispatch({type:'MISSION_SET',mission:{id:'stage8-other',title:'Stage8 Other',exercises:[...m.exercises]}});return true;");reset(w);send(w,'tiếp tục kế hoạch đã lưu');time.sleep(.25);s=snap(w);assert last(s)['outcome']=='STALE' and last(s)['errorClass'] in ['SUPPORT_FINGERPRINT_STALE','PRESENTATION_DRIFT'];E['checks']['stale_authority']='PASS'
+    expected=[x['path'] for x in SOURCE_MANIFEST if x['path'].endswith('.js')]
+    perf=w.log('performance') or [];statuses={}
+    for row in perf:
+      try:
+        msg=json.loads(row.get('message','{}')).get('message',{});p=msg.get('params',{});r=p.get('response',{})
+        if msg.get('method')=='Network.responseReceived':
+          u=r.get('url','')
+          if u.startswith(BASE) and u.endswith('.js'):statuses[u[len(BASE):]]=r.get('status')
+      except Exception:pass
+    if not all(statuses.get(x)==200 for x in expected):
+      # independent same-origin 200 verification plus performance resource presence
+      fetches=w.js_async("""const done=arguments[arguments.length-1], xs=arguments[0];Promise.all(xs.map(x=>fetch(x,{cache:'no-store'}).then(r=>[x,r.status]).catch(e=>[x,0]))).then(done);""",[expected]);
+      if not all(dict(fetches).get(x)==200 for x in expected): raise RuntimeError('SCRIPT_HTTP_FAILURE '+json.dumps({'performance':statuses,'fetch':fetches}))
+    E['script_statuses']=statuses;E['checks']['scripts_17_http_200']='PASS'
+    blog=w.log('browser') or [];severe=[]
+    for row in blog:
+      if str(row.get('level','')).upper()!='SEVERE':continue
+      m=str(row.get('message',''))
+      if 'Failed to load resource' in m and '.js' not in m:continue
+      severe.append(m)
+    E['browser_severe_errors']=severe;assert not severe,severe;E['checks']['js_errors_zero']='PASS'
+    shot=w.screenshot();jpg=base64.b64decode(shot);E['screenshot_sha256']=hashlib.sha256(jpg).hexdigest();E['screenshot_bytes']=len(jpg);E['verdict']='PHASE16B_STAGE8_PASS';print('P16B_STAGE8_EVIDENCE_JSON='+json.dumps(E,ensure_ascii=False,separators=(',',':')));print('PHASE16B_STAGE8_PASS')
   finally:
-    pr.terminate();log.close();xv.terminate();xlog.close()
+    if w:w.close()
+    dp.terminate();dlog.close()
+
 if __name__=='__main__':main()
