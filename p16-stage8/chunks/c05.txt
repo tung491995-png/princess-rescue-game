@@ -1,4 +1,6 @@
-s.environ.get('CHROMEWEBDRIVER','')
+('chromedriver')
+  if c:return c
+  d=os.environ.get('CHROMEWEBDRIVER','')
   for p in [pathlib.Path(d)/'chromedriver' if d else None,pathlib.Path('/usr/local/share/chromedriver-linux64/chromedriver')]:
     if p and p.exists():return str(p)
   raise RuntimeError('CHROMEDRIVER_NOT_FOUND')
