@@ -54,13 +54,11 @@ def prep():
     p=ROOT/r['path'];assert hashlib.sha256(p.read_bytes()).hexdigest()==r['sha256'],r['path']
 
 def hooks(w):
-  return w.js("""window.__t=[];window.__p=[];const h=phase14Coordinator.handleTurn.bind(phase14Coordinator);phase14Coordinator.handleTurn=function(i){const r=h(i);window.__t.push({route:r&&r.route,message:r&&r.message,safety:!!(r&&r.safety),extensionVersion:r&&r.extensionTrace&&r.extensionTrace.extensionVersion,outcome:r&&r.extensionTrace&&r.extensionTrace.outcome,errorClass:r&&r.extensionTrace&&r.extensionTrace.errorClass});return r};const ps=presentSpeech;presentSpeech=function(i){const ok=ps(i);if(ok)window.__p.push({text:String(i&&i.text||''),priority:i&&i.priority});return ok};return true;""")
+  return w.js("""window.__t=[];window.__p=[];const h=phase14Coordinator.handleTurn.bind(phase14Coordinator);phase14Coordinator.handleTurn=function(i){const r=h(i);window.__t.push({route:r&&r.route,message:r&&r.message,safety:!!(r&&r.safety),extensionVersion:r&&r.extensionTrace&&r.extensionTrace.extensionVersion,outcome:r&&r.extensionTrace&&(r.extensionTrace.continuityOutcome||r.extensionTrace.outcome),errorClass:r&&r.extensionTrace&&r.extensionTrace.errorClass});return r};const ps=presentSpeech;presentSpeech=function(i){const ok=ps(i);if(ok)window.__p.push({text:String(i&&i.text||''),priority:i&&i.priority});return ok};return true;""")
 def reset(w):w.js("window.__t=[];window.__p=[];return true;")
 def send(w,s):w.js("sendMessage(arguments[0]);return true;",[s])
 def snap(w):return w.js("""let raw=localStorage.getItem('v3.phase16b.continuity.v2'),doc=raw?JSON.parse(raw):null;return {origin:location.origin,today:!!document.getElementById('todayView'),mira:!!document.getElementById('miraLiving'),kai:!!document.getElementById('kaiLiving'),turns:window.__t||[],present:window.__p||[],continuity:phase15LongitudinalExtension.inspectContinuity(),storeRaw:raw,store:doc};""")
 def last(s):return s['turns'][-1] if s['turns'] else None
 
 def driver_path():
-  c=shutil.which('chromedriver')
-  if c:return c
-  d=o
+  c=shutil.which
