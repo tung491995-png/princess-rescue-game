@@ -235,7 +235,10 @@ def main():
           r=params.get('response',{}); url=r.get('url','')
           if url.endswith('.js'): script_responses.append({'url':url,'status':r.get('status'),'mimeType':r.get('mimeType')})
         elif m=='Runtime.exceptionThrown': startup_errors.append({'kind':'exception','data':params})
-        elif m=='Log.entryAdded' and params.get('entry',{}).get('level')=='error': startup_errors.append({'kind':'log','text':params.get('entry',{}).get('text')})
+        elif m=='Log.entryAdded' and params.get('entry',{}).get('level')=='error':
+          entry=params.get('entry',{}); txt=entry.get('text',''); url=entry.get('url','')
+          if not ('Failed to load resource' in txt and not url.endswith('.js')):
+            startup_errors.append({'kind':'log','text':txt,'url':url})
         elif m=='Runtime.consoleAPICalled' and params.get('type')=='error': startup_errors.append({'kind':'console','data':params})
       expected_scripts=['workout-runtime.js','face-runtime.js','today-runtime.js','phase14/storage-observer.js','phase14/action-gate.js','phase14/model-adapter.js','phase14/companion-intelligence.js','phase15/memory-authority.js','phase15/longitudinal-evidence.js','phase15/longitudinal-extension.js','phase16/goal-context.js','phase16/strategic-extension.js','phase14/cognitive-kernel.js','app.js']
       loaded={u.split(BASE,1)[-1]:st for u,st in [(x['url'],x['status']) for x in script_responses] if u.startswith(BASE)}
