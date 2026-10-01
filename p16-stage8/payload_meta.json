@@ -1,5 +1,5 @@
 {
-  "candidateSha256": "433bff046f8e60a86106f50a49b7df029ad4113df14f3a7b98395f3be8a9a2d5",
+  "candidateSha256": "77f04e222484a1f7ef0219737e145181e19f4b230c762fa509be35b113d04404",
   "projectionFiles": [
     "index.html",
     "app.js",
@@ -29,7 +29,7 @@
   "projectionHashes": {
     "index.html": "53da88bfe780940bf2104f929a97a9014719ebf51a7b3b5561b7993b2bf9af67",
     "app.js": "503f2a8cdaa6dba64403c2151a1926d9a99ac4c3fdb7418319b8512780d7f2e1",
-    "style.css": "9a9175b2f3e4936f56fb07c5f20ed7aba6d2c376219a56edbd3c92b058f46848",
+    "style.css": "35fdc113a729d6d6e65758b6079b23b21a242791d2daae2f05ca55ddda2005a1",
     "manifest.json": "afa10f471b67768b3739d822bd4f2c1fc1e7d6fb587b67b66dab55618de17a4e",
     "workout-runtime.js": "6cf33035617babf370204a2210d0d544e827416890d28fc7f16fad0b54e627fa",
     "face-runtime.js": "dd330971d18c416dcd0d3d1b4c0aef17d6a10ad019f639bffd0033f2ed759a45",
