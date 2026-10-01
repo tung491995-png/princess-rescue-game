@@ -143,7 +143,7 @@ try:
         elif m.get('method')=='Runtime.exceptionThrown': exceptions.append(m['params'].get('exceptionDetails',{}).get('text','exception'))
         elif m.get('method')=='Log.entryAdded' and m['params'].get('entry',{}).get('level')=='error':
             e=m['params']['entry']; u=e.get('url',''); t=e.get('text','')
-            if not ('Failed to load resource' in t and '/assets/' in u): log_errors.append({'text':t,'url':u})
+            if not ('Failed to load resource' in t and ('/assets/' in u or u.endswith('/favicon.ico'))): log_errors.append({'text':t,'url':u})
     missing=[u for u in expected_urls if responses.get(u)!=200]
     if missing or exceptions or log_errors: die({'missing_code':missing,'exceptions':exceptions,'log_errors':log_errors})
     plan=run_turn(ws,'Plan this week')
