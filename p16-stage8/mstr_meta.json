@@ -1,0 +1,48 @@
+{
+  "candidateSha256": "c68ee6d530ad45bcd8dd32a8728ecabda8a3f98ee37d515f3a11d5efde5958ea",
+  "projectionFiles": [
+    "index.html","app.js","style.css","manifest.json","workout-runtime.js","face-runtime.js","today-runtime.js",
+    "phase14/storage-observer.js","phase14/action-gate.js","phase14/model-adapter.js","phase14/companion-intelligence.js","phase14/cognitive-kernel.js",
+    "phase15/memory-authority.js","phase15/longitudinal-evidence.js","phase15/longitudinal-extension.js",
+    "phase16/goal-context.js","phase16/strategic-extension.js",
+    "phase16b/continuity-support.js","phase16b/continuity-store.js","phase16b/continuity-extension.js",
+    "phase16c/initiative-support.js","phase16c/initiative-store.js","phase16c/initiative-extension.js",
+    "phase16d/dialogue-context.js"
+  ],
+  "projectionHashes": {
+    "index.html": "53da88bfe780940bf2104f929a97a9014719ebf51a7b3b5561b7993b2bf9af67",
+    "app.js": "503f2a8cdaa6dba64403c2151a1926d9a99ac4c3fdb7418319b8512780d7f2e1",
+    "style.css": "35fdc113a729d6d6e65758b6079b23b21a242791d2daae2f05ca55ddda2005a1",
+    "manifest.json": "afa10f471b67768b3739d822bd4f2c1fc1e7d6fb587b67b66dab55618de17a4e",
+    "workout-runtime.js": "6cf33035617babf370204a2210d0d544e827416890d28fc7f16fad0b54e627fa",
+    "face-runtime.js": "dd330971d18c416dcd0d3d1b4c0aef17d6a10ad019f639bffd0033f2ed759a45",
+    "today-runtime.js": "c2009bacffc23e4e44d2c624a90f01c5dd9055e858bfa707838349fa8b10a70e",
+    "phase14/storage-observer.js": "0bb6f179a411135afd664548adea06ec6569ba76e2e7940b1f2f9d50a785dc2c",
+    "phase14/action-gate.js": "205e3625efa211c751b98f973ca3f21e048c750ab13da889722f804beb453897",
+    "phase14/model-adapter.js": "63ccfc280d5a10a1133b375cca02ccd597cb72fe5eab2de087375b53bf4bf4cb",
+    "phase14/companion-intelligence.js": "03474e3857df6e2122ff4348a9f91f292cb904965261f3b8aebef1d5921f8c85",
+    "phase14/cognitive-kernel.js": "ae8379f6a739c019bd45da1917e7ba6b1989e57f678c8881",
+    "phase15/memory-authority.js": "1d8493a4552a0e00c9a9d7fcb4475661d5c7da2f1549cec9a270c8b500802205",
+    "phase15/longitudinal-evidence.js": "857d8b5e99a7b9e0263446554ebe80241d0e508935b8ccba1e1413f1444b8920",
+    "phase15/longitudinal-extension.js": "8f2f6e22db2ae67c3a17643ee20dba3ab33bd0a53418f9476ff3c6ada58ed20c",
+    "phase16/goal-context.js": "c8bcbfb38232cb759e5b0ad28506a9621368a46ac8e49c640af38f1322997fc1",
+    "phase16/strategic-extension.js": "61dd4d3431474123f7bf383bff9dd54cbf415c3e17ea36bbb14df4df9295676b",
+    "phase16b/continuity-support.js": "71b2eb9bd6487c798d5b901ececff3492df9cb079d5ed4ebbd76ef1d88d62ad8",
+    "phase16b/continuity-store.js": "5910f6ce7d582ff5985efdb9060bf31d85be6b948d7e415b754c3ec90e94ed83",
+    "phase16b/continuity-extension.js": "e3d717bff1868849024745ba814815f121b2a1c244e6b2427f11c0ffaeaaeced",
+    "phase16c/initiative-support.js": "0fc5da35f29e4b3d185b7cfbb32454a453a076a5e6d89ffceda0389ee5e48091",
+    "phase16c/initiative-store.js": "e0204a341360ce32aeaccbaabe893e31e0da2b668c75b4834fc88924ba3567d1",
+    "phase16c/initiative-extension.js": "7a4882db8adfd5da70fb5fe039298efa96491b82b7e3c02f13adc2710bd7db30",
+    "phase16d/dialogue-context.js": "7436817ac57a444ea31db05549f56c436a6eb92afd87fa55771de3529c04f664"
+  },
+  "scriptList": [
+    "workout-runtime.js","face-runtime.js","today-runtime.js",
+    "phase14/storage-observer.js","phase14/action-gate.js","phase14/model-adapter.js","phase14/companion-intelligence.js",
+    "phase15/memory-authority.js","phase15/longitudinal-evidence.js","phase15/longitudinal-extension.js",
+    "phase16/goal-context.js","phase16/strategic-extension.js",
+    "phase16b/continuity-support.js","phase16b/continuity-store.js","phase16b/continuity-extension.js",
+    "phase16c/initiative-support.js","phase16c/initiative-store.js","phase16c/initiative-extension.js",
+    "phase14/cognitive-kernel.js","phase16d/dialogue-context.js","app.js"
+  ],
+  "patchFiles": ["style.css","phase15/memory-authority.js","phase16b/continuity-support.js","phase16b/continuity-store.js","phase16b/continuity-extension.js"]
+}
