@@ -239,7 +239,9 @@ try:
         severe.append(msg)
     rec('no_severe_js_console_errors',len(severe)==0,severe,True)
 
-    verdict='UI_CTA01_HOTFIX_RENDERED_PASS'\n\n    evidence={
+    verdict='UI_CTA01_HOTFIX_RENDERED_PASS'
+
+    evidence={
       'schema':'UI_CTA01_HOTFIX_RENDERED_ACCEPTANCE_V1_0',
       'candidateSha256':EXPECTED_SHA,
       'projectionManifestCount':len(SOURCE_HASHES),
