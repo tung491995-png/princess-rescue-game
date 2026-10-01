@@ -4,7 +4,7 @@ import base64, tarfile, io, hashlib, json, os, sys, time, urllib.request, import
 
 ROOT=Path(__file__).resolve().parent
 BASE='http://127.0.0.1:8765/'
-EXPECTED_SHA='433bff046f8e60a86106f50a49b7df029ad4113df14f3a7b98395f3be8a9a2d5'
+EXPECTED_SHA='77f04e222484a1f7ef0219737e145181e19f4b230c762fa509be35b113d04404'
 META=json.loads((ROOT/'payload_meta.json').read_text('utf-8'))
 SOURCE_HASHES=META['projectionHashes']
 checks=[]
