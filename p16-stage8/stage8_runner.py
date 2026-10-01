@@ -79,27 +79,29 @@ def boot():
     wait_js(driver,"document.readyState==='complete' && typeof sendMessage==='function' && !!window.V3CoachAdapter")
 
 def produce_cta():
-    js(driver,"window.__ctaAuditCalls=[]; window.__ctaClicks=0; window.__ctaTouches=0; return true")
+    js(driver,"window.__ctaAuditCalls=[]; window.__ctaClicks=0; window.__ctaTouches=0; window.__ctaAuditTargetId=null; return true")
     js(driver,"sendMessage('Mira form push'); return true")
     wait_js(driver,"window.__ctaAuditCalls.length===1",8)
-    wait_js(driver,"document.getElementById('dialogueCopy').textContent==='CTA_AUDIT_FORM'",8)
-    wait_js(driver,"document.getElementById('dialogueAction').hidden===false",8)
-    js(driver,"const e=document.getElementById('dialogueAction'); e.addEventListener('click',()=>window.__ctaClicks++); e.addEventListener('touchstart',()=>window.__ctaTouches++); return true")
+    wait_js(driver,"document.getElementById('dialogueCopy').textContent==='CTA_AUDIT_FORM' || document.getElementById('dialogueScene').hidden===false",8)
+    wait_js(driver,"document.getElementById('dialogueAction').hidden===false || (document.getElementById('dialogueScene').hidden===false && document.getElementById('sceneAction').hidden===false)",10)
+    target=js(driver,"return document.getElementById('dialogueAction').hidden===false?'dialogueAction':'sceneAction'")
+    js(driver,"window.__ctaAuditTargetId=arguments[0]; const e=document.getElementById(arguments[0]); e.addEventListener('click',()=>window.__ctaClicks++); e.addEventListener('touchstart',()=>window.__ctaTouches++); return true",target)
     return js(driver,"return JSON.parse(JSON.stringify(window.__ctaAuditCalls[0]))")
 
 def geometry():
     return js(driver,r"""
-      const ids=['dialogueAction','spatialDialogue','todayDialogueSlot','visualStage'];
+      const targetId=window.__ctaAuditTargetId||'dialogueAction';
+      const ids=[targetId,'dialogueAction','sceneAction','spatialDialogue','todayDialogueSlot','visualStage','dialogueScene'];
       const cls=['hero-copy','companion-layer'];
-      const out={};
+      const out={targetId};
       function snap(e,name){
         const r=e.getBoundingClientRect(),s=getComputedStyle(e);
         out[name]={tag:e.tagName,id:e.id,cls:e.className,rect:{x:r.x,y:r.y,w:r.width,h:r.height},
           zIndex:s.zIndex,position:s.position,pointerEvents:s.pointerEvents,display:s.display,visibility:s.visibility,opacity:s.opacity};
       }
-      for(const id of ids){const e=document.getElementById(id); if(e)snap(e,id)}
+      for(const id of [...new Set(ids)]){const e=document.getElementById(id); if(e)snap(e,id)}
       for(const c of cls){const e=document.querySelector('.'+c); if(e)snap(e,c)}
-      const a=document.getElementById('dialogueAction'),r=a.getBoundingClientRect();
+      const a=document.getElementById(targetId),r=a.getBoundingClientRect();
       const x=r.left+r.width/2,y=r.top+r.height/2;
       out.center={x,y,stack:document.elementsFromPoint(x,y).map(e=>({tag:e.tagName,id:e.id,cls:e.className,
         z:getComputedStyle(e).zIndex,pe:getComputedStyle(e).pointerEvents,pos:getComputedStyle(e).position})).slice(0,12)};
@@ -194,7 +196,7 @@ try:
     set_viewport(1440,1000,mobile=False,touch=False)
     produce_cta()
     from selenium.webdriver.common.keys import Keys
-    driver.find_element('id','dialogueAction').send_keys(Keys.ENTER); time.sleep(.35)
+    driver.find_element('id',js(driver,"return window.__ctaAuditTargetId")).send_keys(Keys.ENTER); time.sleep(.35)
     keyboard_ok=js(driver,"return !document.getElementById('faceView').hidden")
     rec('desktop_keyboard_activation_works',keyboard_ok,{'faceVisible':keyboard_ok},True)
 
