@@ -220,14 +220,15 @@ try:
     pre_direct0=ev(ws1,'phase16bContinuityStore.readStrict()'); check(pre_direct0.get('kind')=='VALID' and pre_direct0.get('document',{}).get('anchor'),{'preDirect0':pre_direct0})
     ev(ws1,"setView('face');dismissSpeech('cert',{restore:false});true")
     pre_direct1=ev(ws1,'phase16bContinuityStore.readStrict()'); check(pre_direct1.get('kind')=='VALID' and pre_direct1.get('document',{}).get('anchor'),{'preDirect1':pre_direct1})
+    ev(ws1,"window.__certBReadLog=[];window.__certOrigBRead=phase16bContinuityStore.readStrict;phase16bContinuityStore.readStrict=(...a)=>{const r=window.__certOrigBRead(...a);window.__certBReadLog.push({kind:r.kind,hasAnchor:!!r.document?.anchor,revision:r.revision});return r};true")
     check(ev(ws1,'document.visibilityState')=='visible','direct-user tab not visible'); serial=ev(ws1,'phase16cService.inspect().eventSerial'); click_selector(ws1,'#tabs button[data-view="today"]')
-    post_click_store=ev(ws1,'phase16bContinuityStore.readStrict()')
+    post_click_store=ev(ws1,'phase16bContinuityStore.readStrict()'); cert_read_log=ev(ws1,'window.__certBReadLog'); ev(ws1,"phase16bContinuityStore.readStrict=window.__certOrigBRead;delete window.__certOrigBRead;true")
     end=time.time()+4; direct=None
     while time.time()<end:
         x=ev(ws1,'phase16cService.inspect()')
         if x.get('eventSerial',0)>serial and x.get('lastDecision'): direct=x['lastDecision']; break
         time.sleep(.06)
-    check(direct and direct.get('outcome')=='PING',{'direct':direct,'postClickContinuityStore':post_click_store,'preDirect0':pre_direct0,'preDirect1':pre_direct1}); st,en=store_entries(ws1); check(len(en)==1 and en[0]['state']=='DELIVERED','direct view receipt not delivered')
+    check(direct and direct.get('outcome')=='PING',{'direct':direct,'serviceReadLog':cert_read_log,'postClickContinuityStore':post_click_store,'preDirect0':pre_direct0,'preDirect1':pre_direct1}); st,en=store_entries(ws1); check(len(en)==1 and en[0]['state']=='DELIVERED','direct view receipt not delivered')
     evidence['checks']['directUserViewEntry']={'decision':direct,'receiptState':'DELIVERED'}
 
     clear_p16c(ws1,ws2); dismiss_all(ws1,ws2); ev(ws1,"setView('today');dismissSpeech('cert',{restore:false});true"); ws1.call('Page.bringToFront')
