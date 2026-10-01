@@ -1,22 +1,18 @@
 #!/usr/bin/env python3
 from pathlib import Path
 import base64, tarfile, io, hashlib, json, os, sys, time, urllib.request, importlib.util, subprocess
-
 ROOT=Path(__file__).resolve().parent
 BASE='http://127.0.0.1:8765/'
-META=json.loads((ROOT/'payload_meta.json').read_text('utf-8'))
-CANDIDATE_SHA=META['candidateSha256']
+META=json.loads((ROOT/'mstr_meta.json').read_text('utf-8'))
+EXPECTED_CANDIDATE_SHA=META['candidateSha256']
 SOURCE_HASHES=META['projectionHashes']
 EXPECTED_SCRIPTS=META['scriptList']
+PATCH_FILES=META['patchFiles']
 checks=[]
 
 def check(name, cond, detail=None):
     ok=bool(cond); checks.append({'name':name,'pass':ok,'detail':detail})
-    if not ok:
-        raise AssertionError(name + (': '+str(detail) if detail is not None else ''))
-
-def record(name, cond, detail=None):
-    ok=bool(cond); checks.append({'name':name,'pass':ok,'detail':detail}); return ok
+    if not ok: raise AssertionError(name+(': '+str(detail) if detail is not None else ''))
 
 def sha(b): return hashlib.sha256(b).hexdigest()
 
@@ -25,15 +21,43 @@ def wait_js(driver, expr, timeout=12):
     return WebDriverWait(driver,timeout,poll_frequency=.08).until(lambda d: d.execute_script('return !!('+expr+')'))
 
 def js(driver, code, *args): return driver.execute_script(code,*args)
-def get_calls(driver): return js(driver,'return JSON.parse(JSON.stringify(window.__p16dCalls||[]))')
-def set_mode(driver,mode): js(driver,'window.__p16dMode=arguments[0]; return true;',mode)
 
-def clean_reload(driver, clear_storage=True):
-    if clear_storage: js(driver,'localStorage.clear(); return true;')
-    driver.refresh()
-    wait_js(driver,"document.readyState==='complete' && typeof sendMessage==='function' && !!window.V3CoachAdapter")
+def submit(driver,text):
+    js(driver,"sendMessage(arguments[0]); return true",text)
+    time.sleep(.25)
 
-# Harness-only dependency bootstrap, matching the successful Phase16A Stage8 retry pattern.
+def safe_extract(raw):
+    with tarfile.open(fileobj=io.BytesIO(raw),mode='r:gz') as tf:
+        members=tf.getmembers()
+        for m in members:
+            p=Path(m.name)
+            check('safe_payload_path:'+m.name,not p.is_absolute() and '..' not in p.parts,m.name)
+        tf.extractall(ROOT,filter='data')
+
+projection=''.join(x.read_text('ascii') for x in sorted(ROOT.glob('projection.part.*')))
+check('historical_projection_parts_present',bool(projection))
+safe_extract(base64.b64decode(projection,validate=True))
+patch_b64=(ROOT/'mstr_patch_payload.b64').read_text('ascii').strip()
+safe_extract(base64.b64decode(patch_b64,validate=True))
+for rel in PATCH_FILES: check('patch_file_present:'+rel,(ROOT/rel).is_file(),rel)
+for p,expected in SOURCE_HASHES.items():
+    actual=sha((ROOT/p).read_bytes()); check('source_hash:'+p,actual==expected,actual)
+check('projection_source_count',len(SOURCE_HASHES)==24,len(SOURCE_HASHES))
+for p in SOURCE_HASHES:
+    if p.endswith(('.js','.css','.html','.json')):
+        with urllib.request.urlopen(BASE+p,timeout=5) as r: check('http200:'+p,r.status==200,r.status)
+
+PRELOAD=r"""(() => {
+  window.V3Phase16PlanningAdapter={
+    version:'mstr-stage8-v1',
+    select(args){
+      const ids=((args&&args.frame&&args.frame.eligibleOptions)||[]).map(x=>x.optionId);
+      const wanted=ids.includes('WEEK.PREFERENCE_WINDOW')?['WEEK.PREFERENCE_WINDOW']:(ids[0]?[ids[0]]:[]);
+      return {selectedOptionIds:wanted,nextBestOptionId:wanted[0]||null,comparison:null,rationale:'MSTR_STAGE8_DETERMINISTIC_SELECTOR'};
+    }
+  };
+})();"""
+
 deps=ROOT/'.stage8_deps'
 if importlib.util.find_spec('selenium') is None:
     deps.mkdir(exist_ok=True)
@@ -41,46 +65,9 @@ if importlib.util.find_spec('selenium') is None:
     sys.path.insert(0,str(deps))
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-
-# Decode exact browser-code projection and verify every source hash before Chrome launch.
-projection=''.join(x.read_text('ascii') for x in sorted(ROOT.glob('projection.part.*'))); raw=base64.b64decode(projection,validate=True)
-with tarfile.open(fileobj=io.BytesIO(raw),mode='r:gz') as tf:
-    tf.extractall(ROOT)
-for p,expected in SOURCE_HASHES.items():
-    actual=sha((ROOT/p).read_bytes()); check('source_hash:'+p,actual==expected,actual)
-check('projection_source_count',len(SOURCE_HASHES)==24,len(SOURCE_HASHES))
-for p in SOURCE_HASHES:
-    if p.endswith(('.js','.css','.html','.json')):
-        with urllib.request.urlopen(BASE+p,timeout=5) as r:
-            check('http200:'+p,r.status==200,r.status)
-
-PRELOAD=r"""(() => {
-  window.__p16dCalls=[];
-  window.__p16dMode='genericSafe';
-  window.__p16dSeq=0;
-  window.__p16dPendingResolve=null;
-  window.V3CoachAdapter={
-    respond(request){
-      const copy=JSON.parse(JSON.stringify(request));
-      window.__p16dCalls.push(copy); window.__p16dSeq++;
-      const m=window.__p16dMode;
-      if(m==='genericHandoffTrue') return {coach:request.coach,text:'GENERIC_'+window.__p16dSeq,action:{label:'EVIL',action:'start'},handoff:true};
-      if(m==='genericSafe') return {coach:request.coach,text:'GENERIC_'+window.__p16dSeq,handoff:false};
-      if(m==='formStopCta') return {coach:request.coach,text:'FORM_STOP',action:{label:'FACE LAB',action:'face'},handoff:false};
-      if(m==='formHandoff'){
-        if(request.dialogueContext) return {coach:request.coach,text:'FORM_SECOND',action:{label:'EVIL2',action:'start'},handoff:true};
-        return {coach:request.coach,text:'FORM_FIRST',handoff:true};
-      }
-      if(m==='pending') return new Promise(resolve=>{window.__p16dPendingResolve=resolve});
-      return {coach:request.coach,text:'DEFAULT',handoff:false};
-    }
-  };
-})();"""
 
 opts=Options()
-for a in ['--headless=new','--disable-gpu','--window-size=1440,1000']:
-    opts.add_argument(a)
+for a in ['--headless=new','--disable-gpu','--window-size=1440,1000']: opts.add_argument(a)
 opts.set_capability('goog:loggingPrefs',{'browser':'ALL'})
 check('configured_no_no_sandbox','--no-sandbox' not in opts.arguments,opts.arguments)
 
@@ -88,7 +75,7 @@ driver=webdriver.Chrome(options=opts)
 try:
     driver.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument',{'source':PRELOAD})
     driver.get(BASE)
-    wait_js(driver,"document.readyState==='complete' && typeof sendMessage==='function' && !!window.V3CoachAdapter")
+    wait_js(driver,"document.readyState==='complete' && typeof sendMessage==='function' && typeof phase15MemoryAuthority!=='undefined' && typeof phase16bContinuityStore!=='undefined'",20)
     check('runtime_no_no_sandbox','--no-sandbox' not in driver.capabilities.get('goog:chromeOptions',{}).get('args',[]),driver.capabilities.get('goog:chromeOptions',{}).get('args',[]))
     check('real_localhost_navigation',driver.current_url.startswith(BASE),driver.current_url)
     origin=js(driver,'return location.origin')
@@ -98,104 +85,58 @@ try:
     check('mira_kai_today_dom',all(dom.values()),dom)
     rendered_scripts=js(driver,"return Array.from(document.scripts).map(s=>s.getAttribute('src')).filter(Boolean)")
     check('rendered_exact_script_list',rendered_scripts==EXPECTED_SCRIPTS,rendered_scripts)
-    check('phase16d_module_available',js(driver,"return typeof Phase16DDialogueContext==='object' && Phase16DDialogueContext.VERSION_ID==='phase16d-dialogue-context-v1'"))
+    identity=js(driver,"return {key:Phase16BContinuityStore.STORE_KEY,schema:Phase16BContinuityStore.STORE_SCHEMA_VERSION,sem:Phase16BContinuitySupport.SEMANTICS_VERSION}")
+    check('store_v3_key',identity['key']=='v3.phase16b.continuity.v3',identity)
+    check('store_v3_schema',identity['schema']==3,identity)
+    check('semantics_v2',identity['sem']=='phase16b-continuity-semantics-v2',identity)
 
-    # Real localStorage + reload survival.
-    check('real_local_storage',js(driver,"localStorage.setItem('__p16d_stage8','ok'); return localStorage.getItem('__p16d_stage8')")=='ok')
-    driver.refresh(); wait_js(driver,"document.readyState==='complete' && typeof sendMessage==='function'")
-    check('local_storage_survives_reload',js(driver,"return localStorage.getItem('__p16d_stage8')")=='ok')
-    js(driver,"localStorage.removeItem('__p16d_stage8'); return true")
+    check('real_local_storage',js(driver,"localStorage.setItem('__mstr_stage8','persist-ok'); return localStorage.getItem('__mstr_stage8')")=='persist-ok')
+    initial=js(driver,"return phase15MemoryAuthority.readSubjectState('workout.preferred_time')")
+    check('initial_subject_absent',initial['status']=='ABSENT',initial)
+    check('initial_absent_token',initial['subjectStateToken']=='P15S1:125824c91e9771f9514510cf7e14a7820a0c515232c79369e33920e6071f9cc8',initial)
 
-    # A: two-turn generic/default=false flow, same user text twice. Second turn is sent through real UI form.
-    clean_reload(driver,True); set_mode(driver,'genericHandoffTrue')
-    user_text='Mira hello again'
-    js(driver,"sendMessage(arguments[0]); return true",user_text)
-    wait_js(driver,'window.__p16dCalls.length===1',8); wait_js(driver,"document.getElementById('dialogueCopy').textContent==='GENERIC_1'",8)
-    c1=get_calls(driver)[0]
-    check('generic_first_context_present','dialogueContext' in c1,c1)
-    check('generic_first_context_empty',c1['dialogueContext']['messageCount']==0,c1['dialogueContext'])
-    check('default_false_first_call_no_extra_handoff',len(get_calls(driver))==1)
-    check('enriched_malicious_action_quarantined',js(driver,"return document.getElementById('dialogueAction').hidden===true"))
-    js(driver,"openInput('mira'); return true")
-    inp=driver.find_element(By.ID,'messageInput'); inp.clear(); inp.send_keys(user_text)
-    driver.find_element(By.ID,'sendMessage').click()
-    wait_js(driver,'window.__p16dCalls.length===2',8); wait_js(driver,"document.getElementById('dialogueCopy').textContent==='GENERIC_2'",8)
-    c2=get_calls(driver)[1]; msgs=c2['dialogueContext']['messages']
-    check('two_turn_current_text_request_once',c2['text']==user_text and sum(1 for m in msgs if m.get('text')==user_text)==1,{'requestText':c2['text'],'messages':msgs})
-    check('two_turn_prior_dialogue_present',any(m.get('role')=='coach' and m.get('text')=='GENERIC_1' for m in msgs),msgs)
-    check('two_turn_no_current_response_feedback',all(m.get('text')!='GENERIC_2' for m in msgs),msgs)
-    check('ui_direct_input_submit_usable',js(driver,"return document.getElementById('messageInput').value===''"))
-    check('default_false_adapter_true_still_one_per_turn',len(get_calls(driver))==2,len(get_calls(driver)))
-    screenshot=driver.get_screenshot_as_png(); screenshot_sha=sha(screenshot)
+    js(driver,"return phase15MemoryAuthority.mutate({logicalRequestId:'mstr-stage8-pref-evening',requestEpoch:1,operation:'UPSERT',subjectId:'workout.preferred_time',normalizedValue:'EVENING',source:'USER_EXPLICIT'})")
+    evening=js(driver,"return phase15MemoryAuthority.readSubjectState('workout.preferred_time')")
+    check('evening_subject_active',evening['status']=='ACTIVE' and evening['normalizedValue']=='EVENING',evening)
+    check('evening_subject_token',evening['subjectStateToken']=='P15S1:906b1f53346277c07af06a835ab4fad3c339c2b7563b560674f116557b0abde5',evening)
 
-    # Reload retains origin storage but not Phase16D free-form conversation context.
-    js(driver,"localStorage.setItem('__p16d_reload_marker','persist'); return true")
-    driver.refresh(); wait_js(driver,"document.readyState==='complete' && typeof sendMessage==='function'")
-    check('reload_storage_origin_still_real',js(driver,"return localStorage.getItem('__p16d_reload_marker')")=='persist')
-    set_mode(driver,'genericSafe'); js(driver,"sendMessage('Mira after reload'); return true")
-    wait_js(driver,'window.__p16dCalls.length===1',8)
-    cr=get_calls(driver)[0]
-    check('reload_no_implicit_phase16d_context',cr.get('dialogueContext',{}).get('messageCount')==0,cr)
+    submit(driver,'Plan this week')
+    wait_js(driver,"(()=>{try{return !!phase15LongitudinalExtension.inspectContinuity().capture}catch(e){return false}})()",10)
+    capture=js(driver,"return phase15LongitudinalExtension.inspectContinuity().capture")
+    check('capture_exists',bool(capture),capture)
+    dep=capture['steps'][0]['memoryDependency']
+    check('capture_memorydependency_v2',dep and dep['version']==2 and dep['subjectId']=='workout.preferred_time',dep)
+    check('capture_subject_token_exact',dep['subjectStateToken']==evening['subjectStateToken'] and dep['normalizedValue']=='EVENING',dep)
+    check('capture_has_no_global_stateToken','stateToken' not in dep,dep)
 
-    # B: default=true + adapter=false remains one history-free call; frozen CTA remains usable.
-    clean_reload(driver,True); set_mode(driver,'formStopCta')
-    js(driver,"sendMessage('Mira form push'); return true")
-    wait_js(driver,'window.__p16dCalls.length===1',8); wait_js(driver,"document.getElementById('dialogueCopy').textContent==='FORM_STOP'",8)
-    fb=get_calls(driver)[0]
-    check('default_true_adapter_false_one_call',len(get_calls(driver))==1)
-    check('default_true_first_history_free','dialogueContext' not in fb,fb)
-    wait_js(driver,"document.getElementById('dialogueAction').hidden===false",8)
-    action_text=driver.find_element(By.ID,'dialogueAction').text
-    check('cta_visible','FACE LAB' in action_text,action_text)
-    action_el=driver.find_element(By.ID,'dialogueAction')
-    js(driver,"arguments[0].scrollIntoView({block:'center',inline:'center'}); return true",action_el); time.sleep(.25)
-    hitmap=js(driver,"const e=arguments[0],r=e.getBoundingClientRect(),fs=[.12,.3,.5,.7,.88],ys=[.2,.5,.8],out=[]; for(const fx of fs)for(const fy of ys){const x=r.left+r.width*fx,y=r.top+r.height*fy,h=document.elementFromPoint(x,y);out.push({x,y,ok:h===e||e.contains(h),hit:h?h.id||h.className||h.tagName:null});} return {rect:{x:r.x,y:r.y,w:r.width,h:r.height},points:out};",action_el)
-    exposed=[p for p in hitmap['points'] if p['ok']]
-    # Stage8 precedent gates CTA usability, not a newly invented pointer-hit-map criterion.
-    # Keep pointer exposure as diagnostic only; require a real accessible activation path.
-    pointer_ok=len(exposed)>0
-    cta_pointer_diagnostic={'accessible':pointer_ok,'hitmap':hitmap}
-    cta_failure_screenshot=None
-    if pointer_ok:
-        pt=exposed[0]
-        driver.execute_cdp_cmd('Input.dispatchMouseEvent',{'type':'mouseMoved','x':pt['x'],'y':pt['y']})
-        driver.execute_cdp_cmd('Input.dispatchMouseEvent',{'type':'mousePressed','x':pt['x'],'y':pt['y'],'button':'left','clickCount':1})
-        driver.execute_cdp_cmd('Input.dispatchMouseEvent',{'type':'mouseReleased','x':pt['x'],'y':pt['y'],'button':'left','clickCount':1})
-        wait_js(driver,"!document.getElementById('faceView').hidden",5)
-        check('cta_accessible_activation_usable',js(driver,"return !document.getElementById('faceView').hidden"),{'mode':'pointer','point':pt,'pointerDiagnostic':cta_pointer_diagnostic})
-    else:
-        cta_failure_screenshot=driver.get_screenshot_as_png()
-        from selenium.webdriver.common.keys import Keys
-        action_el.send_keys(Keys.ENTER); wait_js(driver,"!document.getElementById('faceView').hidden",5)
-        check('cta_accessible_activation_usable',js(driver,"return !document.getElementById('faceView').hidden"),{'mode':'keyboard','pointerDiagnostic':cta_pointer_diagnostic})
+    submit(driver,'chốt kế hoạch này')
+    wait_js(driver,"(()=>{try{return phase16bContinuityStore.readStrict().kind==='VALID'}catch(e){return false}})()",10)
+    stored=js(driver,"return phase16bContinuityStore.readStrict()")
+    doc=stored['document']; sdep=doc['anchor']['sourcePlan']['steps'][0]['memoryDependency']
+    check('persisted_store_v3',doc['version']==3 and doc['phase16bSemanticsVersion']=='phase16b-continuity-semantics-v2',doc)
+    check('persisted_anchor_v3',doc['anchor']['schemaVersion']==3,doc['anchor'])
+    check('persisted_dependency_v2',sdep['version']==2 and sdep['subjectStateToken']==evening['subjectStateToken'] and sdep['normalizedValue']=='EVENING',sdep)
 
-    # C: default=true + handoff=true; only already-authorized second call gets immutable pre-ingress context.
-    clean_reload(driver,True); set_mode(driver,'genericSafe')
-    js(driver,"sendMessage('Mira prior seed'); return true"); wait_js(driver,'window.__p16dCalls.length===1',8); wait_js(driver,"document.getElementById('dialogueCopy').textContent==='GENERIC_1'",8)
-    prior=js(driver,"return JSON.parse(JSON.stringify(todayRuntime.getState().interaction.messages))")
-    set_mode(driver,'formHandoff'); before=len(get_calls(driver)); js(driver,"sendMessage('Mira form push'); return true")
-    wait_js(driver,f'window.__p16dCalls.length==={before+2}',12)
-    calls=get_calls(driver); first=calls[before]; second=calls[before+1]
-    check('default_true_handoff_first_history_free','dialogueContext' not in first,first)
-    check('default_true_second_context_present','dialogueContext' in second,second)
-    sm=second['dialogueContext']['messages']
-    check('second_call_same_preingress_snapshot',sm==prior,{'expected':prior,'actual':sm})
-    check('second_call_excludes_current_first_response',all(m.get('text') not in ('Mira form push','FORM_FIRST') for m in sm),sm)
-    check('default_true_two_calls_exact',len(get_calls(driver))==before+2,len(get_calls(driver)))
+    sentinel='MSTR_HISTORICAL_V2_SENTINEL_NOT_JSON'
+    js(driver,"localStorage.setItem('v3.phase16b.continuity.v2',arguments[0]); return true",sentinel)
+    driver.refresh(); wait_js(driver,"document.readyState==='complete' && typeof phase15MemoryAuthority!=='undefined' && typeof phase16bContinuityStore!=='undefined'",20)
+    check('local_storage_survives_reload',js(driver,"return localStorage.getItem('__mstr_stage8')")=='persist-ok')
+    check('historical_v2_untouched',js(driver,"return localStorage.getItem('v3.phase16b.continuity.v2')")==sentinel)
+    reload_subject=js(driver,"return phase15MemoryAuthority.readSubjectState('workout.preferred_time')")
+    reload_store=js(driver,"return phase16bContinuityStore.readStrict()")
+    check('subject_token_survives_reload',reload_subject['subjectStateToken']==evening['subjectStateToken'],reload_subject)
+    check('v3_anchor_survives_reload',reload_store['kind']=='VALID' and reload_store['document']['version']==3,reload_store)
 
-    # D: stale enriched async completion rejected after view/context change.
-    clean_reload(driver,True); set_mode(driver,'pending')
-    js(driver,"sendMessage('Mira pending hello'); return true")
-    wait_js(driver,'window.__p16dCalls.length===1 && typeof window.__p16dPendingResolve==="function"',8)
-    js(driver,"setView('face'); return true")
-    js(driver,"window.__p16dPendingResolve({coach:'mira',text:'LATE_RESPONSE',handoff:false}); return true")
+    js(driver,"return phase15MemoryAuthority.mutate({logicalRequestId:'mstr-stage8-pref-morning',requestEpoch:1,operation:'UPSERT',subjectId:'workout.preferred_time',normalizedValue:'MORNING',source:'USER_EXPLICIT'})")
+    morning=js(driver,"return phase15MemoryAuthority.readSubjectState('workout.preferred_time')")
+    check('morning_subject_token',morning['subjectStateToken']=='P15S1:c0f1e79a3bf3d742b1648bf43c37b4e686519b265e8d49b8d2fc5b7c0c600cb2',morning)
+    submit(driver,'tiếp tục kế hoạch đã lưu')
     time.sleep(.7)
-    late=js(driver,"return document.getElementById('dialogueCopy').textContent")
-    check('stale_async_not_rendered',late!='LATE_RESPONSE',late)
-    discard=js(driver,"return speechState.lastDiscard")
-    check('stale_async_discard_recorded','stale async' in str(discard),discard)
+    after=js(driver,"return phase16bContinuityStore.readStrict()")
+    saved_dep=after['document']['anchor']['sourcePlan']['steps'][0]['memoryDependency']
+    check('relevant_change_not_silently_rewritten',saved_dep['subjectStateToken']==evening['subjectStateToken'] and saved_dep['normalizedValue']=='EVENING',saved_dep)
+    check('historical_v2_still_untouched',js(driver,"return localStorage.getItem('v3.phase16b.continuity.v2')")==sentinel)
 
-    # Console/runtime error audit. Ignore only omitted binary visual assets/favicon; every HTML/CSS/JS/JSON code resource was checked HTTP 200.
     logs=driver.get_log('browser'); severe=[]
     for e in logs:
         if e.get('level')!='SEVERE': continue
@@ -203,31 +144,24 @@ try:
         if 'Failed to load resource' in msg and ('/assets/' in msg or 'favicon.ico' in msg): continue
         severe.append(msg)
     check('no_severe_js_console_errors',len(severe)==0,severe)
+    for p in EXPECTED_SCRIPTS:
+        with urllib.request.urlopen(BASE+p,timeout=5) as r: check('script_http200:'+p,r.status==200,r.status)
 
+    screenshot=driver.get_screenshot_as_png()
     evidence={
-      'schema':'P16D_STAGE8_CI_EVIDENCE_V1_2',
-      'candidateSha256':CANDIDATE_SHA,
-      'projectionManifestCount':len(SOURCE_HASHES),
-      'projectionHashesVerified':True,
-      'runner':{
-        'os':subprocess.check_output(['bash','-lc','source /etc/os-release && echo $PRETTY_NAME'],text=True).strip(),
-        'chromeVersion':subprocess.check_output(['google-chrome','--version'],text=True).strip(),
-        'chromeBinary':subprocess.check_output(['which','google-chrome'],text=True).strip(),
-        'euid':os.geteuid(),'configuredArgs':opts.arguments,'noNoSandbox':('--no-sandbox' not in opts.arguments)
-      },
+      'schema':'MSTR_STAGE8_CI_EVIDENCE_V1_0','candidateSha256':EXPECTED_CANDIDATE_SHA,
+      'projectionManifestCount':len(SOURCE_HASHES),'projectionHashesVerified':True,
+      'runner':{'os':subprocess.check_output(['bash','-lc','source /etc/os-release && echo $PRETTY_NAME'],text=True).strip(),'chromeVersion':subprocess.check_output(['google-chrome','--version'],text=True).strip(),'chromeBinary':subprocess.check_output(['which','google-chrome'],text=True).strip(),'euid':os.geteuid(),'configuredArgs':opts.arguments,'noNoSandbox':('--no-sandbox' not in opts.arguments)},
       'browser':{'baseUrl':BASE,'origin':origin,'title':driver.title,'realLocalStorage':True,'localStorageSurvivedReload':True,'renderedScripts':rendered_scripts,'domMarkers':dom,'severeJsConsoleErrors':severe},
-      'behavior':{'twoTurnGenericContext':True,'defaultFalseNoEscalation':True,'defaultTrueAdapterFalseOneCall':True,'defaultTrueSecondCallContext':True,'ctaUsable':True,'ctaPointerDiagnostic':cta_pointer_diagnostic,'staleAsyncRejected':True,'reloadNoImplicitContext':True},
-      'screenshot':{'sha256':sha(cta_failure_screenshot or screenshot),'bytes':len(cta_failure_screenshot or screenshot),'kind':'cta_failure' if cta_failure_screenshot else 'generic'},
+      'behavior':{'storeIdentity':identity,'initialSubject':initial,'eveningSubject':evening,'captureMemoryDependency':dep,'persistedMemoryDependency':sdep,'reloadSubject':reload_subject,'morningSubject':morning,'historicalV2Untouched':True,'relevantChangeNotSilentlyRewritten':True},
+      'screenshot':{'sha256':sha(screenshot),'bytes':len(screenshot)},
       'checks':checks,'checkCount':len(checks),'failedChecks':[c['name'] for c in checks if not c['pass']],
-      'verdict':'PHASE16D_RENDERED_BROWSER_FAIL' if any(not c['pass'] for c in checks) else 'PHASE16D_RENDERED_BROWSER_PASS'
+      'verdict':'MSTR_STAGE8_FAIL' if any(not c['pass'] for c in checks) else 'MSTR_STAGE8_PASS'
     }
-    print('P16D_STAGE8_EVIDENCE_JSON='+json.dumps(evidence,separators=(',',':'),ensure_ascii=False),flush=True)
-    final_shot=cta_failure_screenshot or screenshot
-    enc=base64.b64encode(final_shot).decode('ascii')
-    for i in range(0,len(enc),6000): print('P16D_SCREENSHOT_B64_CHUNK='+enc[i:i+6000],flush=True)
-    if evidence['failedChecks']:
-        print('PHASE16D_RENDERED_BROWSER_FAIL',flush=True)
-        raise AssertionError('rendered failures: '+','.join(evidence['failedChecks']))
-    print('PHASE16D_RENDERED_BROWSER_PASS',flush=True)
+    print('MSTR_STAGE8_EVIDENCE_JSON='+json.dumps(evidence,separators=(',',':'),ensure_ascii=False),flush=True)
+    enc=base64.b64encode(screenshot).decode('ascii')
+    for i in range(0,len(enc),6000): print('MSTR_SCREENSHOT_B64_CHUNK='+enc[i:i+6000],flush=True)
+    if evidence['failedChecks']: raise AssertionError('rendered failures: '+','.join(evidence['failedChecks']))
+    print('MSTR_STAGE8_PASS',flush=True)
 finally:
     driver.quit()
