@@ -56,6 +56,19 @@ for p,expected in SOURCE_HASHES.items():
     actual=sha((ROOT/p).read_bytes())
     rec('source_hash:'+p,actual==expected,actual,True)
 rec('projection_source_count',len(SOURCE_HASHES)==24,len(SOURCE_HASHES),True)
+
+# Independent certification inspection of the authorized CSS delta.
+cert_css=(ROOT/'style.css').read_text('utf-8')
+marker='/* UI-CTA-01:'
+cert_tail=cert_css.split(marker,1)[1] if marker in cert_css else ''
+rec('cert_css_marker_present',marker in cert_css,None,True)
+rec('cert_css_scope_exact','.app[data-view="today"].dialogue-active .hero-copy { pointer-events:none; }' in cert_css,None,True)
+rec('cert_css_interactive_descendants',all(x in cert_css for x in [
+  '.hero-copy button,','.hero-copy input,','.hero-copy textarea,','.hero-copy select,','.hero-copy a { pointer-events:auto; }'
+]),None,True)
+rec('cert_css_hit_testing_only',all(x not in cert_tail for x in ['z-index:','position:','display:','transform:','opacity:']),None,True)
+rec('cert_css_does_not_raise_visual_stage','.visual-stage' not in cert_tail,None,True)
+
 for p in SOURCE_HASHES:
     if p.endswith(('.js','.css','.html','.json')):
         with urllib.request.urlopen(BASE+p,timeout=5) as r:
@@ -178,6 +191,31 @@ try:
     rec('real_local_storage',js(driver,"localStorage.setItem('__cta01','ok'); const v=localStorage.getItem('__cta01'); localStorage.removeItem('__cta01'); return v")=='ok',None,True)
     rec('phase16d_module_loaded',js(driver,"return !!window.Phase16DDialogueContext && Phase16DDialogueContext.VERSION_ID==='phase16d-dialogue-context-v1'"),None,True)
 
+    # Independent state-scope proof: inactive/non-Today states remain unchanged; Today dialogue state applies the fix.
+    set_viewport(1440,1000,mobile=False,touch=False)
+    inactive_pe=js(driver,"return getComputedStyle(document.querySelector('.hero-copy')).pointerEvents")
+    rec('scope_inactive_today_hero_auto',inactive_pe=='auto',inactive_pe,True)
+
+    js(driver,"window.__ctaAuditMode='genericSafe'; window.__ctaAuditCalls=[]; sendMessage('Mira hello'); return true")
+    wait_js(driver,"window.__ctaAuditCalls.length===1 && document.querySelector('.app').classList.contains('dialogue-active')",8)
+    active_scope=js(driver,r"""
+      const h=document.querySelector('.hero-copy');
+      return {
+        hero:getComputedStyle(h).pointerEvents,
+        start:getComputedStyle(document.getElementById('startWithKai')).pointerEvents,
+        face:getComputedStyle(document.getElementById('todayFaceCta')).pointerEvents,
+        view:document.querySelector('.app').dataset.view,
+        dialogue:document.querySelector('.app').classList.contains('dialogue-active')
+      };
+    """)
+    rec('scope_today_dialogue_hero_none',active_scope['hero']=='none',active_scope,True)
+    rec('scope_today_dialogue_controls_auto',active_scope['start']=='auto' and active_scope['face']=='auto',active_scope,True)
+
+    js(driver,"setView('face'); return true"); time.sleep(.2)
+    non_today_pe=js(driver,"return getComputedStyle(document.querySelector('.hero-copy')).pointerEvents")
+    rec('scope_non_today_hero_auto',non_today_pe=='auto',non_today_pe,True)
+    js(driver,"setView('today'); window.__ctaAuditMode='formStopCta'; return true"); time.sleep(.2)
+
     # Packaged hotfix acceptance matrix: every target must activate without runtime remediation.
     matrix=[
       run_case('desktop_1440x1000',1440,1000,'mouse',False),
@@ -239,10 +277,10 @@ try:
         severe.append(msg)
     rec('no_severe_js_console_errors',len(severe)==0,severe,True)
 
-    verdict='UI_CTA01_HOTFIX_RENDERED_PASS'
+    verdict='UI_CTA01_HOTFIX_CERTIFICATION_RENDERED_PASS'
 
     evidence={
-      'schema':'UI_CTA01_HOTFIX_RENDERED_ACCEPTANCE_V1_0',
+      'schema':'UI_CTA01_HOTFIX_CERTIFICATION_RENDERED_V1_0',
       'candidateSha256':EXPECTED_SHA,
       'projectionManifestCount':len(SOURCE_HASHES),
       'projectionHashesVerified':True,
@@ -257,6 +295,7 @@ try:
       'projectionHashVerifiedExact':True,
       'acceptanceMatrix':{'total':len(matrix),'allPass':all(x['activated'] for x in matrix),'cases':matrix},
       'heroControls':interactive,
+      'stateScope':{'inactiveTodayHeroPointerEvents':inactive_pe,'activeTodayDialogue':active_scope,'nonTodayHeroPointerEvents':non_today_pe},
       'severeJsConsoleErrors':severe,
       'checks':checks,
       'failedHardChecks':[c['name'] for c in checks if not c['pass'] and c['name'] in ['candidate_sha_meta_exact','configured_no_no_sandbox','runtime_no_no_sandbox','real_localhost_origin','real_local_storage','phase16d_module_loaded','desktop_keyboard_activation_works','no_severe_js_console_errors']],
