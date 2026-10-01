@@ -15,6 +15,9 @@ def check(name, cond, detail=None):
     if not ok:
         raise AssertionError(name + (': '+str(detail) if detail is not None else ''))
 
+def record(name, cond, detail=None):
+    ok=bool(cond); checks.append({'name':name,'pass':ok,'detail':detail}); return ok
+
 def sha(b): return hashlib.sha256(b).hexdigest()
 
 def wait_js(driver, expr, timeout=12):
@@ -146,10 +149,22 @@ try:
     check('cta_visible','FACE LAB' in action_text,action_text)
     action_el=driver.find_element(By.ID,'dialogueAction')
     js(driver,"arguments[0].scrollIntoView({block:'center',inline:'center'}); return true",action_el); time.sleep(.25)
-    hit=js(driver,"const e=arguments[0],r=e.getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2,h=document.elementFromPoint(x,y); return {ok:h===e||e.contains(h),hit:h?h.id||h.className||h.tagName:null,rect:{x:r.x,y:r.y,w:r.width,h:r.height}}",action_el)
-    check('cta_native_hit_target_usable',hit.get('ok'),hit)
-    action_el.click(); wait_js(driver,"!document.getElementById('faceView').hidden",5)
-    check('cta_click_usable_face_view',js(driver,"return !document.getElementById('faceView').hidden"))
+    hitmap=js(driver,"const e=arguments[0],r=e.getBoundingClientRect(),fs=[.12,.3,.5,.7,.88],ys=[.2,.5,.8],out=[]; for(const fx of fs)for(const fy of ys){const x=r.left+r.width*fx,y=r.top+r.height*fy,h=document.elementFromPoint(x,y);out.push({x,y,ok:h===e||e.contains(h),hit:h?h.id||h.className||h.tagName:null});} return {rect:{x:r.x,y:r.y,w:r.width,h:r.height},points:out};",action_el)
+    exposed=[p for p in hitmap['points'] if p['ok']]
+    pointer_ok=record('cta_pointer_hit_target_accessible',len(exposed)>0,hitmap)
+    cta_failure_screenshot=None
+    if pointer_ok:
+        pt=exposed[0]
+        driver.execute_cdp_cmd('Input.dispatchMouseEvent',{'type':'mouseMoved','x':pt['x'],'y':pt['y']})
+        driver.execute_cdp_cmd('Input.dispatchMouseEvent',{'type':'mousePressed','x':pt['x'],'y':pt['y'],'button':'left','clickCount':1})
+        driver.execute_cdp_cmd('Input.dispatchMouseEvent',{'type':'mouseReleased','x':pt['x'],'y':pt['y'],'button':'left','clickCount':1})
+        wait_js(driver,"!document.getElementById('faceView').hidden",5)
+        record('cta_native_pointer_activation_usable',js(driver,"return !document.getElementById('faceView').hidden"),pt)
+    else:
+        cta_failure_screenshot=driver.get_screenshot_as_png()
+        from selenium.webdriver.common.keys import Keys
+        action_el.send_keys(Keys.ENTER); wait_js(driver,"!document.getElementById('faceView').hidden",5)
+        record('cta_keyboard_activation_usable',js(driver,"return !document.getElementById('faceView').hidden"),hitmap)
 
     # C: default=true + handoff=true; only already-authorized second call gets immutable pre-ingress context.
     clean_reload(driver,True); set_mode(driver,'genericSafe')
@@ -199,13 +214,17 @@ try:
       },
       'browser':{'baseUrl':BASE,'origin':origin,'title':driver.title,'realLocalStorage':True,'localStorageSurvivedReload':True,'renderedScripts':rendered_scripts,'domMarkers':dom,'severeJsConsoleErrors':severe},
       'behavior':{'twoTurnGenericContext':True,'defaultFalseNoEscalation':True,'defaultTrueAdapterFalseOneCall':True,'defaultTrueSecondCallContext':True,'ctaUsable':True,'staleAsyncRejected':True,'reloadNoImplicitContext':True},
-      'screenshot':{'sha256':screenshot_sha,'bytes':len(screenshot)},
+      'screenshot':{'sha256':sha(cta_failure_screenshot or screenshot),'bytes':len(cta_failure_screenshot or screenshot),'kind':'cta_failure' if cta_failure_screenshot else 'generic'},
       'checks':checks,'checkCount':len(checks),'failedChecks':[c['name'] for c in checks if not c['pass']],
-      'verdict':'PHASE16D_RENDERED_BROWSER_PASS'
+      'verdict':'PHASE16D_RENDERED_BROWSER_FAIL' if any(not c['pass'] for c in checks) else 'PHASE16D_RENDERED_BROWSER_PASS'
     }
     print('P16D_STAGE8_EVIDENCE_JSON='+json.dumps(evidence,separators=(',',':'),ensure_ascii=False),flush=True)
-    enc=base64.b64encode(screenshot).decode('ascii')
+    final_shot=cta_failure_screenshot or screenshot
+    enc=base64.b64encode(final_shot).decode('ascii')
     for i in range(0,len(enc),6000): print('P16D_SCREENSHOT_B64_CHUNK='+enc[i:i+6000],flush=True)
+    if evidence['failedChecks']:
+        print('PHASE16D_RENDERED_BROWSER_FAIL',flush=True)
+        raise AssertionError('rendered failures: '+','.join(evidence['failedChecks']))
     print('PHASE16D_RENDERED_BROWSER_PASS',flush=True)
 finally:
     driver.quit()
