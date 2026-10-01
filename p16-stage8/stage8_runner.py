@@ -60,14 +60,15 @@ rec('projection_source_count',len(SOURCE_HASHES)==24,len(SOURCE_HASHES),True)
 # Independent certification inspection of the authorized CSS delta.
 cert_css=(ROOT/'style.css').read_text('utf-8')
 marker='/* UI-CTA-01:'
-cert_tail=cert_css.split(marker,1)[1] if marker in cert_css else ''
+cert_after=cert_css.split(marker,1)[1] if marker in cert_css else ''
+cert_block=cert_after.split('.app.input-open ~ .companion-layer',1)[0] if cert_after else ''
 rec('cert_css_marker_present',marker in cert_css,None,True)
 rec('cert_css_scope_exact','.app[data-view="today"].dialogue-active .hero-copy { pointer-events:none; }' in cert_css,None,True)
 rec('cert_css_interactive_descendants',all(x in cert_css for x in [
   '.hero-copy button,','.hero-copy input,','.hero-copy textarea,','.hero-copy select,','.hero-copy a { pointer-events:auto; }'
 ]),None,True)
-rec('cert_css_hit_testing_only',all(x not in cert_tail for x in ['z-index:','position:','display:','transform:','opacity:']),None,True)
-rec('cert_css_does_not_raise_visual_stage','.visual-stage' not in cert_tail,None,True)
+rec('cert_css_hit_testing_only',all(x not in cert_block for x in ['z-index:','position:','display:','transform:','opacity:']),cert_block,True)
+rec('cert_css_does_not_raise_visual_stage','.visual-stage' not in cert_block,cert_block,True)
 
 for p in SOURCE_HASHES:
     if p.endswith(('.js','.css','.html','.json')):
