@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from pathlib import Path
-import base64, tarfile, io, hashlib, json, os, sys, time, urllib.request, importlib.util, subprocess
+import base64, tarfile, io, gzip, hashlib, json, os, sys, time, urllib.request, importlib.util, subprocess
 ROOT=Path(__file__).resolve().parent
 BASE='http://127.0.0.1:8765/'
 META=json.loads((ROOT/'mstr_meta.json').read_text('utf-8'))
@@ -37,8 +37,10 @@ def safe_extract(raw):
 projection=''.join(x.read_text('ascii') for x in sorted(ROOT.glob('projection.part.*')))
 check('historical_projection_parts_present',bool(projection))
 safe_extract(base64.b64decode(projection,validate=True))
-patch_b64=(ROOT/'mstr_patch_payload.b64').read_text('ascii').strip()
-safe_extract(base64.b64decode(patch_b64,validate=True))
+patch_b64=(ROOT/'mstr_patch_diff_gz.b64').read_text('ascii').strip()
+patch_text=gzip.decompress(base64.b64decode(patch_b64,validate=True)).decode('utf-8')
+patch_run=subprocess.run(['patch','-p1','--batch','--forward'],cwd=ROOT,input=patch_text,text=True,capture_output=True)
+check('mstr_delta_patch_applied',patch_run.returncode==0,{'stdout':patch_run.stdout,'stderr':patch_run.stderr})
 for rel in PATCH_FILES: check('patch_file_present:'+rel,(ROOT/rel).is_file(),rel)
 for p,expected in SOURCE_HASHES.items():
     actual=sha((ROOT/p).read_bytes()); check('source_hash:'+p,actual==expected,actual)
