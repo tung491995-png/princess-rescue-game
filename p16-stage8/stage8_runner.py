@@ -144,7 +144,11 @@ try:
     wait_js(driver,"document.getElementById('dialogueAction').hidden===false",8)
     action_text=driver.find_element(By.ID,'dialogueAction').text
     check('cta_visible','FACE LAB' in action_text,action_text)
-    driver.find_element(By.ID,'dialogueAction').click(); wait_js(driver,"!document.getElementById('faceView').hidden",5)
+    action_el=driver.find_element(By.ID,'dialogueAction')
+    js(driver,"arguments[0].scrollIntoView({block:'center',inline:'center'}); return true",action_el); time.sleep(.25)
+    hit=js(driver,"const e=arguments[0],r=e.getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2,h=document.elementFromPoint(x,y); return {ok:h===e||e.contains(h),hit:h?h.id||h.className||h.tagName:null,rect:{x:r.x,y:r.y,w:r.width,h:r.height}}",action_el)
+    check('cta_native_hit_target_usable',hit.get('ok'),hit)
+    action_el.click(); wait_js(driver,"!document.getElementById('faceView').hidden",5)
     check('cta_click_usable_face_view',js(driver,"return !document.getElementById('faceView').hidden"))
 
     # C: default=true + handoff=true; only already-authorized second call gets immutable pre-ingress context.
