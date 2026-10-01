@@ -55,7 +55,7 @@ PRELOAD=r"""(() => {
     select(args){
       const ids=((args&&args.frame&&args.frame.eligibleOptions)||[]).map(x=>x.optionId);
       const wanted=ids.includes('WEEK.PREFERENCE_WINDOW')?['WEEK.PREFERENCE_WINDOW']:(ids[0]?[ids[0]]:[]);
-      return {selectedOptionIds:wanted,nextBestOptionId:wanted[0]||null,comparison:null,rationale:'MSTR_STAGE8_DETERMINISTIC_SELECTOR'};
+      return {selectedOptionIds:wanted,nextBestOptionId:wanted[0]||null,comparison:null};
     }
   };
 })();"""
