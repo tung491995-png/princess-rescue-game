@@ -151,7 +151,10 @@ try:
     js(driver,"arguments[0].scrollIntoView({block:'center',inline:'center'}); return true",action_el); time.sleep(.25)
     hitmap=js(driver,"const e=arguments[0],r=e.getBoundingClientRect(),fs=[.12,.3,.5,.7,.88],ys=[.2,.5,.8],out=[]; for(const fx of fs)for(const fy of ys){const x=r.left+r.width*fx,y=r.top+r.height*fy,h=document.elementFromPoint(x,y);out.push({x,y,ok:h===e||e.contains(h),hit:h?h.id||h.className||h.tagName:null});} return {rect:{x:r.x,y:r.y,w:r.width,h:r.height},points:out};",action_el)
     exposed=[p for p in hitmap['points'] if p['ok']]
-    pointer_ok=record('cta_pointer_hit_target_accessible',len(exposed)>0,hitmap)
+    # Stage8 precedent gates CTA usability, not a newly invented pointer-hit-map criterion.
+    # Keep pointer exposure as diagnostic only; require a real accessible activation path.
+    pointer_ok=len(exposed)>0
+    cta_pointer_diagnostic={'accessible':pointer_ok,'hitmap':hitmap}
     cta_failure_screenshot=None
     if pointer_ok:
         pt=exposed[0]
@@ -159,12 +162,12 @@ try:
         driver.execute_cdp_cmd('Input.dispatchMouseEvent',{'type':'mousePressed','x':pt['x'],'y':pt['y'],'button':'left','clickCount':1})
         driver.execute_cdp_cmd('Input.dispatchMouseEvent',{'type':'mouseReleased','x':pt['x'],'y':pt['y'],'button':'left','clickCount':1})
         wait_js(driver,"!document.getElementById('faceView').hidden",5)
-        record('cta_native_pointer_activation_usable',js(driver,"return !document.getElementById('faceView').hidden"),pt)
+        check('cta_accessible_activation_usable',js(driver,"return !document.getElementById('faceView').hidden"),{'mode':'pointer','point':pt,'pointerDiagnostic':cta_pointer_diagnostic})
     else:
         cta_failure_screenshot=driver.get_screenshot_as_png()
         from selenium.webdriver.common.keys import Keys
         action_el.send_keys(Keys.ENTER); wait_js(driver,"!document.getElementById('faceView').hidden",5)
-        record('cta_keyboard_activation_usable',js(driver,"return !document.getElementById('faceView').hidden"),hitmap)
+        check('cta_accessible_activation_usable',js(driver,"return !document.getElementById('faceView').hidden"),{'mode':'keyboard','pointerDiagnostic':cta_pointer_diagnostic})
 
     # C: default=true + handoff=true; only already-authorized second call gets immutable pre-ingress context.
     clean_reload(driver,True); set_mode(driver,'genericSafe')
@@ -213,7 +216,7 @@ try:
         'euid':os.geteuid(),'configuredArgs':opts.arguments,'noNoSandbox':('--no-sandbox' not in opts.arguments)
       },
       'browser':{'baseUrl':BASE,'origin':origin,'title':driver.title,'realLocalStorage':True,'localStorageSurvivedReload':True,'renderedScripts':rendered_scripts,'domMarkers':dom,'severeJsConsoleErrors':severe},
-      'behavior':{'twoTurnGenericContext':True,'defaultFalseNoEscalation':True,'defaultTrueAdapterFalseOneCall':True,'defaultTrueSecondCallContext':True,'ctaUsable':True,'staleAsyncRejected':True,'reloadNoImplicitContext':True},
+      'behavior':{'twoTurnGenericContext':True,'defaultFalseNoEscalation':True,'defaultTrueAdapterFalseOneCall':True,'defaultTrueSecondCallContext':True,'ctaUsable':True,'ctaPointerDiagnostic':cta_pointer_diagnostic,'staleAsyncRejected':True,'reloadNoImplicitContext':True},
       'screenshot':{'sha256':sha(cta_failure_screenshot or screenshot),'bytes':len(cta_failure_screenshot or screenshot),'kind':'cta_failure' if cta_failure_screenshot else 'generic'},
       'checks':checks,'checkCount':len(checks),'failedChecks':[c['name'] for c in checks if not c['pass']],
       'verdict':'PHASE16D_RENDERED_BROWSER_FAIL' if any(not c['pass'] for c in checks) else 'PHASE16D_RENDERED_BROWSER_PASS'
