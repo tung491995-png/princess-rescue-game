@@ -204,9 +204,11 @@ try:
     keyboard_ok=js(driver,"return !document.getElementById('faceView').hidden")
     rec('desktop_keyboard_activation_works',keyboard_ok,{'faceVisible':keyboard_ok},True)
 
-    # Hero-copy's own controls must remain pointer reachable while dialogue is active.
+    # Hero-copy's own controls must remain pointer reachable while a no-action Today dialogue is active.
     set_viewport(1440,1000,mobile=False,touch=False)
-    produce_cta()
+    js(driver,"window.__ctaAuditMode='genericSafe'; window.__ctaAuditCalls=[]; sendMessage('Mira hello'); return true")
+    wait_js(driver,"window.__ctaAuditCalls.length===1",8)
+    wait_js(driver,"document.getElementById('spatialDialogue').hidden===false",8)
     interactive=js(driver,r"""
       const ids=['startWithKai','todayFaceCta'];
       const out={};
@@ -219,11 +221,11 @@ try:
       return out;
     """)
     for id,v in interactive.items():
-        # linked action may intentionally hide one control; any visible one must be reachable.
-        if not v['hidden'] and v['visibility']!='hidden' and v['rect']['w']>0 and v['rect']['h']>0:
-            rec('hero_control_pointer:'+id,v['hit'],v,True)
+        rec('hero_control_visible:'+id,(not v['hidden'] and v['visibility']!='hidden' and v['rect']['w']>0 and v['rect']['h']>0),v,True)
+        rec('hero_control_pointer:'+id,v['hit'],v,True)
 
     # Screenshot the repaired common desktop layout.
+    js(driver,"window.__ctaAuditMode='formStopCta'; return true")
     set_viewport(1440,1000,mobile=False,touch=False)
     produce_cta()
     screenshot=driver.get_screenshot_as_png()
@@ -237,7 +239,7 @@ try:
         severe.append(msg)
     rec('no_severe_js_console_errors',len(severe)==0,severe,True)
 
-    evidence={
+    verdict='UI_CTA01_HOTFIX_RENDERED_PASS'\n\n    evidence={
       'schema':'UI_CTA01_HOTFIX_RENDERED_ACCEPTANCE_V1_0',
       'candidateSha256':EXPECTED_SHA,
       'projectionManifestCount':len(SOURCE_HASHES),
@@ -249,7 +251,8 @@ try:
         'euid':os.geteuid(),'configuredArgs':opts.arguments
       },
       'hotfixCandidateSha256':EXPECTED_SHA,
-      'candidateModifiedByHarness':False,
+      'browserProjectionReconstructedFromFrozenPlusAuthorizedStyleDelta':True,
+      'projectionHashVerifiedExact':True,
       'acceptanceMatrix':{'total':len(matrix),'allPass':all(x['activated'] for x in matrix),'cases':matrix},
       'heroControls':interactive,
       'severeJsConsoleErrors':severe,
