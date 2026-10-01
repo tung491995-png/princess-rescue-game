@@ -137,7 +137,34 @@ FIX_CSS="""
 """
 
 def inject_probe_fix():
-    js(driver,"const s=document.createElement('style'); s.id='ui-cta01-remediation-probe'; s.textContent=arguments[0]; document.head.appendChild(s); return true",FIX_CSS)
+    js(driver,"const old=document.getElementById('ui-cta01-remediation-probe'); if(old)old.remove(); const s=document.createElement('style'); s.id='ui-cta01-remediation-probe'; s.textContent=arguments[0]; document.head.appendChild(s); return true",FIX_CSS)
+
+def set_viewport(width,height,mobile=False,touch=False):
+    driver.execute_cdp_cmd('Emulation.setDeviceMetricsOverride',{'mobile':bool(mobile),'width':width,'height':height,'deviceScaleFactor':1})
+    driver.execute_cdp_cmd('Emulation.setTouchEmulationEnabled',{'enabled':bool(touch),'maxTouchPoints':5 if touch else 1})
+    driver.refresh()
+    wait_js(driver,"document.readyState==='complete' && typeof sendMessage==='function' && !!window.V3CoachAdapter")
+
+def run_case(name,width,height,input_mode,mobile=False):
+    set_viewport(width,height,mobile=mobile,touch=(input_mode=='touch'))
+    first=produce_cta()
+    if input_mode=='mouse':
+        raw=dispatch_mouse_center()
+        activated=(raw['clicks']>=1 and raw['faceVisible'])
+    else:
+        raw=dispatch_touch_center()
+        activated=((raw['touches']>=1 or raw['clicks']>=1) and raw['faceVisible'])
+    original={'name':name,'width':width,'height':height,'mobile':mobile,'input':input_mode,'activated':activated,'raw':raw,'request':first}
+    probe=None
+    if not activated:
+        js(driver,"setView('today'); return true"); time.sleep(.2)
+        produce_cta(); inject_probe_fix()
+        if input_mode=='mouse':
+            p=dispatch_mouse_center(); fixed=(p['clicks']>=1 and p['faceVisible'])
+        else:
+            p=dispatch_touch_center(); fixed=((p['touches']>=1 or p['clicks']>=1) and p['faceVisible'])
+        probe={'fixed':fixed,'raw':p}
+    return {'original':original,'probe':probe}
 
 try:
     driver.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument',{'source':PRELOAD})
@@ -147,63 +174,63 @@ try:
     rec('real_local_storage',js(driver,"localStorage.setItem('__cta01','ok'); const v=localStorage.getItem('__cta01'); localStorage.removeItem('__cta01'); return v")=='ok',None,True)
     rec('phase16d_module_loaded',js(driver,"return !!window.Phase16DDialogueContext && Phase16DDialogueContext.VERSION_ID==='phase16d-dialogue-context-v1'"),None,True)
 
-    # DESKTOP — actual pointer acceptance on untouched frozen candidate.
-    first=produce_cta()
-    rec('desktop_default_true_adapter_false_one_call',len(get_calls(driver))==1,len(get_calls(driver)),True)
-    rec('desktop_first_request_history_free','dialogueContext' not in first,first,True)
-    d0=dispatch_mouse_center()
-    desktop_blocked=(d0['clicks']==0 and not d0['faceVisible'])
-    rec('desktop_pointer_bug_reproduced',desktop_blocked,d0,False)
+    # Acceptance matrix: untouched frozen candidate first; runtime-only remediation only on failing cases.
+    matrix=[]
+    matrix.append(run_case('desktop_1440x1000',1440,1000,'mouse',False))
+    matrix.append(run_case('desktop_1280x800',1280,800,'mouse',False))
+    matrix.append(run_case('desktop_1024x768',1024,768,'mouse',False))
+    matrix.append(run_case('tablet_768x1024_touch',768,1024,'touch',True))
+    matrix.append(run_case('mobile_portrait_390x844',390,844,'touch',True))
+    matrix.append(run_case('mobile_landscape_844x390',844,390,'touch',True))
 
-    # Keyboard path remains valid on untouched candidate.
-    if not d0['faceVisible']:
-        from selenium.webdriver.common.keys import Keys
-        driver.find_element('id','dialogueAction').send_keys(Keys.ENTER)
-        time.sleep(.35)
+    failures=[x for x in matrix if not x['original']['activated']]
+    passes=[x for x in matrix if x['original']['activated']]
+    rec('acceptance_matrix_executed',len(matrix)==6,{'count':len(matrix)},True)
+    rec('ui_cta01_reproduced_in_at_least_one_target',len(failures)>0,[x['original']['name'] for x in failures],False)
+    rec('all_failing_cases_runtime_probe_recover',all(x['probe'] and x['probe']['fixed'] for x in failures),[
+        {'name':x['original']['name'],'probeFixed':bool(x['probe'] and x['probe']['fixed'])} for x in failures],False)
+
+    # Keyboard accessibility remains a valid fallback on a failing desktop case.
+    set_viewport(1440,1000,mobile=False,touch=False)
+    produce_cta()
+    from selenium.webdriver.common.keys import Keys
+    driver.find_element('id','dialogueAction').send_keys(Keys.ENTER); time.sleep(.35)
     keyboard_ok=js(driver,"return !document.getElementById('faceView').hidden")
-    rec('desktop_keyboard_activation_works',keyboard_ok,{'clicks':js(driver,'return window.__ctaClicks||0')},True)
+    rec('desktop_keyboard_activation_works',keyboard_ok,{'faceVisible':keyboard_ok},True)
 
-    # DESKTOP — runtime-only remediation probe (candidate bytes remain untouched).
-    js(driver,"setView('today'); return true"); time.sleep(.2)
-    produce_cta(); inject_probe_fix()
-    d1=dispatch_mouse_center()
-    desktop_fix_ok=(d1['clicks']>=1 and d1['faceVisible'])
-    rec('desktop_runtime_probe_fix_restores_pointer',desktop_fix_ok,d1,False)
-
-    # Check frozen hero-copy interactive controls remain hit-testable under probe CSS.
-    js(driver,"setView('today'); return true"); time.sleep(.2)
+    # Probe CSS must preserve hero-copy's own visible interactive controls in a clean no-dialogue state.
+    set_viewport(1440,1000,mobile=False,touch=False)
+    inject_probe_fix()
     interactive=js(driver,r"""
       const ids=['startWithKai','todayFaceCta'];
       const out={};
       for(const id of ids){
-        const e=document.getElementById(id),r=e.getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2,h=document.elementFromPoint(x,y);
-        out[id]={hit:(h===e||e.contains(h)),top:h?(h.id||h.className||h.tagName):null,pe:getComputedStyle(e).pointerEvents};
+        const e=document.getElementById(id),r=e.getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2,h=(r.width&&r.height)?document.elementFromPoint(x,y):null;
+        out[id]={hidden:e.hidden,vis:getComputedStyle(e).visibility,rect:{x:r.x,y:r.y,w:r.width,h:r.height},
+          hit:(r.width>0&&r.height>0&&(h===e||e.contains(h))),top:h?(h.id||h.className||h.tagName):null,pe:getComputedStyle(e).pointerEvents};
       }
       return out;
     """)
-    rec('desktop_probe_preserves_hero_buttons',all(v['hit'] for v in interactive.values()),interactive,False)
+    rec('runtime_probe_preserves_visible_hero_buttons',all((v['hidden'] or v['vis']=='hidden' or v['rect']['w']<=0 or v['rect']['h']<=0 or v['hit']) for v in interactive.values()),interactive,False)
 
-    # MOBILE — real touch emulation on untouched frozen candidate.
-    # Remove runtime probe CSS, switch device metrics, reload clean.
-    js(driver,"document.getElementById('ui-cta01-remediation-probe')?.remove(); return true")
-    driver.execute_cdp_cmd('Emulation.setDeviceMetricsOverride',{'mobile':True,'width':390,'height':844,'deviceScaleFactor':1})
-    driver.execute_cdp_cmd('Emulation.setTouchEmulationEnabled',{'enabled':True,'maxTouchPoints':5})
-    driver.refresh(); wait_js(driver,"document.readyState==='complete' && typeof sendMessage==='function' && !!window.V3CoachAdapter")
-    first_m=produce_cta()
-    m0=dispatch_touch_center()
-    mobile_blocked=(m0['touches']==0 and m0['clicks']==0 and not m0['faceVisible'])
-    rec('mobile_touch_bug_reproduced',mobile_blocked,m0,False)
+    causal={
+      'matrix':matrix,
+      'failingTargets':[x['original']['name'] for x in failures],
+      'passingTargets':[x['original']['name'] for x in passes],
+      'interactiveAfterProbe':interactive,
+      'sourceFinding':{
+        'heroCopy':'position:relative; z-index:8',
+        'visualStage':'position:absolute; z-index:2',
+        'todayDialogueSlot':'child of visualStage; position:absolute; z-index:8',
+        'interpretation':'todayDialogueSlot cannot escape visualStage stacking context z=2; transparent hero-copy z=8 can intercept hit testing wherever their rectangles overlap'
+      }
+    }
+    bug_confirmed=len(failures)>0
+    remediation_feasible=bug_confirmed and all(x['probe'] and x['probe']['fixed'] for x in failures)
+    verdict='UI_CTA01_CONFIRMED_HOTFIX_REQUIRED' if bug_confirmed else 'UI_CTA01_NOT_REPRODUCED'
 
-    # MOBILE runtime-only remediation probe.
-    inject_probe_fix()
-    m1=dispatch_touch_center()
-    mobile_fix_ok=((m1['touches']>=1 or m1['clicks']>=1) and m1['faceVisible'])
-    rec('mobile_runtime_probe_fix_restores_touch',mobile_fix_ok,m1,False)
-
-    # Restore desktop emulation for screenshot.
-    driver.execute_cdp_cmd('Emulation.clearDeviceMetricsOverride',{})
-    driver.execute_cdp_cmd('Emulation.setTouchEmulationEnabled',{'enabled':False})
-    driver.refresh(); wait_js(driver,"document.readyState==='complete' && typeof sendMessage==='function'")
+    # Screenshot untouched desktop failing target.
+    set_viewport(1440,1000,mobile=False,touch=False)
     produce_cta()
     screenshot=driver.get_screenshot_as_png()
 
@@ -216,22 +243,6 @@ try:
         severe.append(msg)
     rec('no_severe_js_console_errors',len(severe)==0,severe,True)
 
-    causal={
-      'desktopOriginal':d0,
-      'desktopProbe':d1,
-      'mobileOriginal':m0,
-      'mobileProbe':m1,
-      'interactiveAfterProbe':interactive,
-      'sourceFinding':{
-        'heroCopy':'position:relative; z-index:8',
-        'visualStage':'position:absolute; z-index:2',
-        'todayDialogueSlot':'child of visualStage; position:absolute; z-index:8',
-        'interpretation':'todayDialogueSlot cannot escape visualStage stacking context z=2; transparent hero-copy z=8 can intercept hit testing above it'
-      }
-    }
-    bug_confirmed=desktop_blocked and mobile_blocked
-    remediation_feasible=desktop_fix_ok and mobile_fix_ok
-    verdict='UI_CTA01_CONFIRMED_HOTFIX_REQUIRED' if bug_confirmed else 'UI_CTA01_NOT_REPRODUCED'
     evidence={
       'schema':'UI_CTA01_ACCEPTANCE_AUDIT_V1_0',
       'candidateSha256':EXPECTED_SHA,
@@ -245,6 +256,7 @@ try:
       },
       'bugConfirmed':bug_confirmed,
       'remediationProbeFeasible':remediation_feasible,
+      'acceptanceMatrix':{'total':len(matrix),'failures':[x['original']['name'] for x in failures],'passes':[x['original']['name'] for x in passes]},
       'candidateModified':False,
       'causalEvidence':causal,
       'severeJsConsoleErrors':severe,
