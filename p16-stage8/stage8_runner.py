@@ -203,7 +203,7 @@ try:
     clear16c(ws1); prep_idle(ws1,'today'); ws1.call('Page.reload',{'ignoreCache':True}); time.sleep(.35); wait_ready(ws1)
     time.sleep(1.0)
     appready=store(ws1)
-    if not (appready.get('kind')==='VALID' and len(appready.get('document',{}).get('entries',[]))==1 and appready['document']['entries'][0]['state']=='DELIVERED'):
+    if not (appready.get('kind')=='VALID' and len(appready.get('document',{}).get('entries',[]))==1 and appready['document']['entries'][0]['state']=='DELIVERED'):
         dbg=ev(ws1,"({decision:phase16cService.inspect().lastDecision,host:phase16cHostSnapshot(),store:phase16cReceiptStore.readStrict(),anchor:phase16bContinuityStore.readStrict(),view:session.view,speech:speechState.current})")
         die({'appReadyDiagnostic':dbg})
     e0=appready['document']['entries'][0]
