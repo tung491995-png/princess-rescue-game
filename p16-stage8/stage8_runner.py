@@ -201,8 +201,12 @@ try:
 
     # Actual APP_READY wiring: reload with active anchor, no 16C store -> exactly one deterministic delivered ping; second reload dedupes.
     clear16c(ws1); prep_idle(ws1,'today'); ws1.call('Page.reload',{'ignoreCache':True}); time.sleep(.35); wait_ready(ws1)
-    wait_expr(ws1,"(()=>{const s=phase16cReceiptStore.readStrict();return s.kind==='VALID'&&s.document.entries.length===1&&s.document.entries[0].state==='DELIVERED'})()")
-    appready=store(ws1); e0=appready['document']['entries'][0]
+    time.sleep(1.0)
+    appready=store(ws1)
+    if not (appready.get('kind')==='VALID' and len(appready.get('document',{}).get('entries',[]))==1 and appready['document']['entries'][0]['state']=='DELIVERED'):
+        dbg=ev(ws1,"({decision:phase16cService.inspect().lastDecision,host:phase16cHostSnapshot(),store:phase16cReceiptStore.readStrict(),anchor:phase16bContinuityStore.readStrict(),view:session.view,speech:speechState.current})")
+        die({'appReadyDiagnostic':dbg})
+    e0=appready['document']['entries'][0]
     check(e0['triggerId']=='APP_READY_WITH_ACTIVE_CONTINUITY',e0)
     first_subject=e0['subjectFingerprint']; first_template=e0['templateId'];
     ws1.call('Page.reload',{'ignoreCache':True}); time.sleep(.35); wait_ready(ws1); time.sleep(.35)
