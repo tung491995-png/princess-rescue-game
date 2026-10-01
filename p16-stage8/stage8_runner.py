@@ -199,8 +199,19 @@ try:
     check(len(entries)==1 and entries[0]['state']=='DELIVERED',{'twoTabStore':s})
     evidence['stages']['twoTabSameSubject']={'status':'PASS','results':[r1,r2],'entryState':entries[0]['state']}
 
+    # Stronger two-tab concurrency: both production extension hosts are explicitly eligible/visible; lock+reservation must still allow only one presentation.
+    clear16c(ws1)
+    ev(ws1,base_custom_service_script('{}',"window.__certShown++; return true;").replace('return {svc,host};','window.__certSvc=svc; window.__certHost=host; return true;'))
+    ev(ws2,base_custom_service_script('{}',"window.__certShown++; return true;").replace('return {svc,host};','window.__certSvc=svc; window.__certHost=host; return true;'))
+    def fire_custom(ws,tag): return ev(ws,f"window.__certSvc.handleEvent({{schemaVersion:1,triggerId:'APP_READY_WITH_ACTIVE_CONTINUITY',eventId:'two-visible-{tag}',occurredAtMs:Date.now(),view:'today',uiContextVersion:'cert:today',userInitiated:false}})",True)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
+        a=ex.submit(fire_custom,ws1,'a'); b=ex.submit(fire_custom,ws2,'b'); ca=a.result(); cb=b.result()
+    shown_total=(ev(ws1,'window.__certShown') or 0)+(ev(ws2,'window.__certShown') or 0)
+    check(sum(1 for r in [ca,cb] if r.get('outcome')=='PING')==1 and shown_total==1,{'eligibleTwoTab':[ca,cb],'shownTotal':shown_total})
+    evidence['stages']['twoTabConcurrentEligible']={'status':'PASS','results':[ca,cb],'shownTotal':shown_total}
+
     # Actual APP_READY wiring: reload with active anchor, no 16C store -> exactly one deterministic delivered ping; second reload dedupes.
-    clear16c(ws1); prep_idle(ws1,'today'); ws1.call('Page.reload',{'ignoreCache':True}); time.sleep(.35); wait_ready(ws1)
+    ws1.call('Page.bringToFront'); time.sleep(.1); clear16c(ws1); prep_idle(ws1,'today'); ws1.call('Page.reload',{'ignoreCache':True}); time.sleep(.35); wait_ready(ws1)
     time.sleep(1.0)
     appready=store(ws1)
     if not (appready.get('kind')=='VALID' and len(appready.get('document',{}).get('entries',[]))==1 and appready['document']['entries'][0]['state']=='DELIVERED'):
