@@ -105,7 +105,7 @@ try:
 
     # A: two-turn generic/default=false flow, same user text twice. Second turn is sent through real UI form.
     clean_reload(driver,True); set_mode(driver,'genericHandoffTrue')
-    user_text='Mira hello repeat'
+    user_text='Mira hello again'
     js(driver,"sendMessage(arguments[0]); return true",user_text)
     wait_js(driver,'window.__p16dCalls.length===1',8); wait_js(driver,"document.getElementById('dialogueCopy').textContent==='GENERIC_1'",8)
     c1=get_calls(driver)[0]
